@@ -1,0 +1,197 @@
+# backporting PEP584 | and |= over dicts
+# as long as it's obvious, at least we try not to do wrong transformations
+# since you can define __or__ and __ior__ we are looking for type hinting
+# and dict-constructors|dict-literals|dict-comprehensions
+# so both the terms must be known (and scoped properly) to apply the transformation
+# that is then like `a |= b` -> `a = {**a, **b}`
+# our type hinting understanding doesn't span files or 'runtime typing aliases'
+# nor inheritance
+#
+
+# TODO: eww, shouldn't be limited to names
+# TODO: also support NamedExpr
+
+@def_macro(expr=True)
+def is_dict_annotation():
+    """expects moon to be ast.arg or ast.AnnAssign"""
+    (( moon.node.annotation.__class__ == ast.Name
+       and moon.node.annotation.id in ('dict', 'Dict')
+    ) or ( moon.node.annotation.__class__ == ast.Subscript
+           and moon.node.annotation.value.__class__ == ast.Name
+           and moon.node.annotation.value.id in ('dict', 'Dict')
+    ))
+
+@def_macro(expr=True)
+def is_dict_constructor(node):
+    (
+        node.__class__ == ast.Call
+        and node.func.__class__ == ast.Name
+        and node.func.id == 'dict'
+    )
+
+@def_macro
+def backport_dict_ops_impl(yr_ast_tree):
+    def grab_last_name(name, grab):
+        for k in reversed(grab.defs):
+            if k[0] == name:
+                return bool(k[1])
+    with MoonGrabber() as grab:
+        grab.defs = []
+        grab.done = []
+        def moon_filter(moon):
+            if (
+                moon.node.__class__ == ast.AnnAssign
+                and (tgt := moon.node.target).__class__ == ast.Name
+            ):
+                thing = 'ann' if is_dict_annotation() else False
+                grab.defs.append((tgt.id, thing))
+
+            elif (
+                moon.node.__class__ == ast.Assign
+            ):
+                for tgt in moon.node.targets:
+                    if tgt.__class__ == ast.Name:
+                        thing = 'ass' if \
+                            moon.node.value.__class__ in (ast.Dict, ast.DictComp)\
+                            or is_dict_constructor(moon.node.value) \
+                        else False
+                        grab.defs.append((tgt.id, thing))
+            elif (
+                moon.node.__class__ == ast.arg
+                and (known_dict := is_dict_annotation())
+            ):
+                thing = 'arg' if known_dict else False
+                grab.defs.append((moon.node.arg, thing))
+            elif moon.node.__class__ == ast.BitOr:
+                if (
+                    moon.up.node.__class__ == ast.BinOp
+                    and (
+                        ((left := moon.up.node.left).__class__ == ast.Name
+                          and ( grab_last_name(left.id, grab)
+                              or grab.defs[-1][0] == left.id  # hack
+                          )
+                        )
+                        or left.__class__ in (ast.Dict, ast.DictComp)
+                        or is_dict_constructor(left)
+                        # what if left is BinOp too??
+                        # nope, you must go further in the tree.
+                        #or ( left.__class__ == ast.BinOp
+                        #     and left.op.__class__ == ast.BitOr )
+                    )
+                    and (
+                        ((right := moon.up.node.right).__class__ == ast.Name
+                          and grab_last_name(right.id, grab))
+                        or right.__class__ in (ast.Dict, ast.DictComp)
+                        or is_dict_constructor(right)
+                    )
+                ):
+                    elts = (left, right)
+                    nadir = moon.up  # nadir is always BinOp
+                    zenith = nadir.up
+                    while zenith:
+                        match zenith.node.__class__:
+                            case ast.Assign:
+                                for tgt in zenith.node.targets:
+                                    if tgt.__class__ == ast.Name:
+                                        grab.defs.append((tgt.id, 'ASS'))
+                                break
+                            case ast.AnnAssign | ast.AugAssign\
+                                if (tgt := zenith.node.target).__class__ == ast.Name:
+                                grab.defs.append((tgt.id, 'Ass'))
+                                break
+                            case ast.AnnAssign | ast.AugAssign:
+                                # TODO: must implement
+                                raise NotImplementedError(str(zenith))
+                            case ast.BinOp:
+                                if zenith.node.right.__class__ == ast.BinOp:
+                                    breakpoint()
+                                elts = (*elts, zenith.node.right)
+                                nadir = zenith
+                                zenith = zenith.up
+                            case _:
+                                break
+                    if elts[0].__class__ == ast.BinOp:
+                        breakpoint()
+                    grab(zenith)
+                    nadir.elts = elts
+                    return nadir
+                elif (
+                    moon.up.node.__class__ == ast.AugAssign
+                    and ( (left := moon.up.node.target).__class__ == ast.Name
+                          and grab_last_name(left.id, grab)
+                    )
+                ):
+                    if (
+                        ((right := moon.up.node.value).__class__ == ast.Name
+                          and grab_last_name(right.id, grab))
+                        or right.__class__ in (ast.Dict, ast.DictComp)
+                        or is_dict_constructor(right)
+                    ):
+                        moon.up.elts = (left, right)
+                        grab(moon.up.up)
+                        return moon.up
+                    elif right.__class__ == ast.BinOp:
+                        def aug_simplifier(left, right):
+                            """a |= b | c | d  -->  (a ((b c) d))
+                            But I halready handled  (((a b) c) d)
+                            """
+                            if right.__class__ == ast.BinOp:
+                                node = right
+                                flatten = []
+                                while node.__class__ == ast.BinOp:
+                                    flatten.append(node.right)
+                                    # you are already operating on dicts here
+                                    # so assert is fine until & or other ops
+                                    # are introduced into python
+                                    assert node.op.__class__ == ast.BitOr
+                                    node = node.left
+                                flatten.append(node)
+                                result = ast.BinOp(left=..., op=ast.BitOr(), right=flatten[0])
+                                tmp = []
+                                for node in flatten[1:-1]:
+                                    tmp.append(ast.BinOp(left=..., op=ast.BitOr(), right=node))
+                                tmp[-1].left = ast.BinOp(left=left, op=ast.BitOr(), right=flatten[-1])
+                                prev = tmp[-1]
+                                for tmp_ in reversed(tmp[:-1]):
+                                    tmp_.left = prev
+                                    prev = tmp_
+                                result.left = prev
+                                return result
+                        if right.left.__class__ == ast.BinOp:
+                            # print(ast.dump(right, indent=4))
+                            simplified = aug_simplifier(left, right)
+                            # print(ast.dump(simplified, indent=4))
+                            fake_ass = ast.Assign(
+                                targets=[left], value=simplified, lineno=1
+                            )
+                            #raise NotImplementedError('TODO: d |= d1 | d2 | d3')
+                        else:
+                            fake_ass = ast.Assign(
+                                targets=[left], value=ast.BinOp(
+                                    left=ast.BinOp(left=left, op=ast.BitOr(), right=right.left),
+                                    op=ast.BitOr(),
+                                    right=right.right,
+                                ),
+                                lineno=1,
+                            )
+                        # print(ast.unparse(fake_ass))
+                        new_moon = list(MoonWalking(fake_ass, filter_cb=moon_filter).tree)[0]
+                        moon.up.elts = new_moon.elts
+                        # print(ast.unparse(moon.up.node), new_moon.elts)
+                        grab(moon.up.up)
+                        return moon.up
+        for moon in MoonWalking(ast_tree, filter_cb=moon_filter).tree:
+            if moon.node in grab.done:
+                continue
+            grab.done.append(moon.node)
+            well = ast.Dict(
+                keys=[None] * len(moon.elts),
+                values=[*moon.elts],
+            )
+            if moon.node.__class__ == ast.AugAssign:
+                moon.replace(ast.Assign(targets=[moon.node.target], value=well, lineno=1))
+            elif moon.node.__class__ == ast.BinOp:
+                moon.replace(well)
+            else:
+                breakpoint()
+    del grab

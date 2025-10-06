@@ -1,0 +1,86 @@
+# TODO: handle this import somehow...
+try:
+    from bootstrapped import def_macro
+except ImportError:
+    from yeastr.bootstrapped import def_macro
+
+
+@def_macro(hygienic=False, mLang=True, del_source=True)
+def prepare_source():
+    if hasattr(fn, '_source'):
+        source = fn._source
+    else:
+        _source = getsource(fn)
+        indent = len(re.compile(r'^(\s*)\S*').match(_source).group(1))
+        source = ''
+        multiline_string = False
+        for line in _source.splitlines():
+            if multiline_string is False:
+                line = line[indent:]
+                if len((matches := re.compile('("""|\'\'\')').findall(line))) == 1:
+                    multiline_string = matches[0]
+            else:
+                if len(re.compile(multiline_string).findall(line)) == 1:
+                    multiline_string = False
+            if not source and line.startswith('@'):
+                continue
+            source += line + '\n'
+        del _source
+
+    _fn = ast.parse(source)
+
+    with mIf(del_source):
+        del source
+
+
+@def_macro(hack_globals=None, custom_globals=None, mLang=True)
+def and_so_on():
+    _source = ast.unparse(_fn)
+    file_name_ = '_.py'
+    if debug:
+        makedirs((debug_dir := f'/tmp/yeastr-debug/{getpid()}/'), exist_ok=True)
+        file_name_ = f'{debug_dir}{random_string(6)}.py'
+        with open(file_name_, 'w') as f:
+            f.write(_source)
+    # Python doesn't have true globals
+    # globals in python are just module.__dict__ entries
+    # globals() returns the module's globals,
+    # being a macro, you have no idea what globals() will contain
+    #
+    # functions using import time macros have kinda different globals
+    # we're currently passing around only custom_globals for backport_match
+    # and nothing else, just because that's what we needed so far,
+    # and the need was "let me monkeypatch input" at import-time
+    # but you maybe just jant to hack the globals and share something across
+    # everything that imports yeastr.bootstrapped? idk, let's see
+    #
+    # pls dude remember the zen
+    # Namespaces are one honking great idea -- let's do more of those!
+
+    with mIf(hack_globals is not None):
+        globals().update(hack_globals)
+    _globals = globals().copy()
+    with mIf(custom_globals is not None):
+        if isinstance(custom_globals, dict):
+            _globals.update(custom_globals)
+        else:
+            _globals.update(custom_globals())
+    exec(compile(_source, file_name_, 'exec'), _globals)
+
+    @wraps(fn)
+    def _ywrapped(*a, **kw):
+        return _globals[fn.__name__](*a, **kw)
+    _ywrapped._source = _source
+    return _ywrapped
+
+
+
+def store_source(debug=False):
+    def _store_source(fn):
+        prepare_source()
+        ...
+        and_so_on()
+    return _store_source
+
+
+__all__ = []

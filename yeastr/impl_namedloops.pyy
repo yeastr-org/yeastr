@@ -1,0 +1,503 @@
+@def_macro
+def compute_current_depth():
+    moon._loop_depth = 0
+    up = moon._up
+    while up:
+        if up._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
+            break
+        elif (
+            up._node.__class__ in (ast.For, ast.While)
+            or yam_with_call_name(up._node, _, 'For')
+            or yam_with_call_name(up._node, _, 'While')
+        ):
+            moon._loop_depth += 1
+        up = up._up
+    moon.loop_depth = max(moon.loop_depth, moon._loop_depth)
+
+
+@def_macro
+def constant_to_bitfield(yr_flag, yr_mask):
+    if v.value:
+        moon.flags |= flag
+    else:
+        moon.flags &= mask
+
+
+@def_macro(expr=True)
+def yloopsf_reset():
+    ast.Assign(
+        targets=[ast.Name('yloopsf')],
+        value=ast.Constant(0),
+        lineno=1,
+    )
+
+
+@def_macro
+def yloopsf_set():
+    if moon.different_depth:
+        match moon.loopattr:
+            case 'Break':
+                flg = 0b10
+            case 'Continue':
+                flg = 0b01
+            case _:
+                raise NotImplementedError('new dev thing?')
+        assert moon.up.node.__class__ == ast.Expr, f'misplaced Break/Continue {moon.up.node.__class__}'
+        moon.up.pop_extend([
+            ast.AugAssign(
+                target=ast.Name('yloopsf'),
+                op=ast.BitOr(),
+                value=ast.Constant(flg << (moon.loop_moon.loop_depth * 2))
+            ),
+            ast.Break(),  # yeah, break on Continue
+        ])
+    else:
+        match moon.loopattr:
+            case 'Break':
+                moon.replace(ast.Break())
+            case 'Continue':
+                moon.replace(ast.Continue())
+            case _:
+                raise NotImplementedError('new dev thing?')
+
+@def_macro()
+def with_namedloops_impl(yr_ast_tree):
+    def before_the_loop(moon):
+        return yloopsf_reset()
+
+    def after_the_loop(moon):
+        if moon.loop_depth == 0:
+            return None  # do absolutely nothing to this loop
+        flag_handlers = ast.If(
+            test=ast.Name('yloopsf'),
+            body=[ast.Break()],
+            orelse=[],
+        )
+        if moon.flags & USES_CONTINUE:
+            cnt_flag = 0b01 << ((moon.loop_depth - 1) * 2)
+            flag_handlers = ast.If(
+                test=ast.BinOp(op=ast.BitAnd(),
+                    left=ast.Name('yloopsf'),
+                    right=ast.Constant(cnt_flag),
+                ),
+                body=[yloopsf_reset(), ast.Continue()],
+                orelse=[flag_handlers],
+            )
+        if moon.flags & USES_BREAK:
+            brk_flag = 0b10 << ((moon.loop_depth - 1) * 2)
+            flag_handlers = ast.If(
+                test=ast.BinOp(op=ast.BitAnd(),
+                    left=ast.Name('yloopsf'),
+                    right=ast.Constant(brk_flag),
+                ),
+                body=[yloopsf_reset(), ast.Break()],
+                orelse=[flag_handlers],
+            )
+        return flag_handlers
+
+
+    with MoonGrabber() as grab:
+        # STRICT3136    = 1 << 0  # now enforced
+        INDEXED       = 1 << 1
+        USES_I        = 1 << 2
+        RECOMPUTE_END = 1 << 3
+        USES_BREAK    = 1 << 4
+        USES_CONTINUE = 1 << 5
+        FAST_OREMPTY  = 1 << 6
+        NOT_INDEXED        = 0b111101
+        DONT_RECOMPUTE_END = 0b111011
+        def moon_filter(moon, moonwalker):
+            moon.flags = 0
+            moon.loop_depth = 0
+            # if (  (  (moon._node.__class__ == ast.Assign
+            #         and (aname := moon._node.targets[0]).__class__ == ast.Name
+            #     ) or (moon._node.__class__ == ast.AugAssign
+            #         and (aname := moon._node.target).__class__ == ast.Name
+            #     ) ) and aname.id == 'yloopsf'
+            # ):
+            #     raise TransformError('are you trying to re-preprocess?')
+            #     # let's say it's ok, but easy to enable back
+            if moon._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
+                moon.kind = 'Fn'
+                moon.loopname = False
+                return moon
+            if moon._node.__class__ in (ast.For, ast.While):
+                moon.kind = moon._node.__class__.__name__.lower()
+                moon.loopname = None
+                compute_current_depth()
+                grab(moon.up)
+                moon.node  # incref
+                return moon
+            elif yam_with_call_name(moon._node, call, 'For'):
+                moon.kind = 'For'
+                if not call.args:
+                    raise TransformError('For without iterable')
+                if not isinstance((name := what[0].optional_vars), ast.Name):
+                    raise TransformError('For without as name')
+                if isinstance((_cmp := call.args[0]), ast.Compare):
+                    if not len(_cmp.ops) == 1 or not isinstance(_cmp.ops[0], ast.In):
+                        raise TransformError('For with weird compare')
+                    if not isinstance(_cmp.left, (ast.Name, ast.Tuple)):
+                        raise TransformError('For with weird name bind')
+                    moon.iterator = _cmp.comparators[0]
+                    moon.item_name = _cmp.left
+                else:
+                    moon.iterator = _cmp
+                    moon.item_name = None
+                if moon.iterator.__class__ in (
+                    ast.List, ast.ListComp, ast.Tuple,
+                ):
+                    moon.flags |= FAST_OREMPTY
+                moon.loopname = name.id
+                moon.orelse = []
+                moon.orempty = False
+                moon.istart = ast.Constant(value=0)
+                moon.flags |= RECOMPUTE_END
+                moon.end = None
+                for k, v in ((kw.arg, kw.value) for kw in call.keywords):
+                    match k:
+                        case 'indexed':
+                            if not isinstance(v, ast.Constant):
+                                raise TransformError(f'{v} is not a constant')
+                            if not isinstance(v.value, bool):
+                                raise TransformError(f'{v.value} is not a boolean')
+                            constant_to_bitfield(INDEXED, NOT_INDEXED)
+                        case 'start':
+                            # TODO: some validation here
+                            moon.istart = v
+                        case 'recompute_end':
+                            if not isinstance(v, ast.Constant):
+                                raise TransformError(f'{v} is not a constant')
+                            if not isinstance(v.value, bool):
+                                raise TransformError(f'{v.value} is not a boolean')
+                            constant_to_bitfield(RECOMPUTE_END, DONT_RECOMPUTE_END)
+                        case 'end':
+                            if not isinstance(v, ast.Constant):
+                                raise TransformError(f'{k}={v} is not a string')
+                            _end = ast.parse(v.value).body[0]
+                            if isinstance(_end, ast.Expr):
+                                moon.end = [_end.value]
+                            elif isinstance(_end, ast.Name):
+                                moon.end = [_end]
+                            else:
+                                raise TransformError(f'don\'t know about {_end}')
+                        case _: raise TransformError(f'what is {k}={v}?\n{ast.unparse(moon.node)}')
+                grab(moon.up)
+                compute_current_depth()
+                return moon
+            elif yam_with_call_name(moon.node, call, 'While'):
+                moon.kind = 'While'
+                if not call.args:
+                    raise TransformError('While without condition')
+                if not isinstance((name := what[0].optional_vars), ast.Name):
+                    raise TransformError('While without as name')
+                for k, v in ((kw.arg, kw.value) for kw in call.keywords):
+                    match k:
+                        case _:
+                            raise TransformError(f'While got {k}')
+                moon.loopname = name.id
+                moon.orelse = []
+                moon.test_condition = call.args[0]
+                grab(moon.up)
+                compute_current_depth()
+                return moon
+            elif (
+                isinstance(moon._node, ast.With)
+                and isinstance((what := moon._node.items), list)
+                and len(what) == 1
+                and isinstance((attr := what[0].context_expr), ast.Attribute)
+                and attr.attr == 'orelse'
+            ):
+                # TODO: we should actually check it matches the loop JUST above!
+                moon.kind = 'orelse'
+                moon.loopname = attr.value.id
+                for other in reversed(moonwalker.tree):
+                    if (
+                        other.kind in ('For', 'While')
+                        and other.loopname == moon.loopname
+                    ):
+                        moon.loop_moon = other
+                        break
+                else:
+                    raise TransformError('orelse without corresponding loop')
+                moon.loop_moon.orelse = moon._node.body
+                grab(moon.up)
+                return moon
+            elif (
+                isinstance(moon._node, ast.With)
+                and isinstance((what := moon._node.items), list)
+                and len(what) == 1
+                and isinstance((attr := what[0].context_expr), ast.Attribute)
+                and attr.attr == 'orempty'
+            ):
+                # TODO: we should actually check it matches the loop JUST above!
+                moon.kind = 'orempty'
+                moon.loopname = attr.value.id
+                for other in reversed(moonwalker.tree):
+                    if other.kind == 'For' and other.loopname == moon.loopname:
+                        moon.loop_moon = other
+                        break
+                else:
+                    raise TransformError('orempty without corresponding loop')
+                moon.loop_moon.orempty = moon._node.body
+                grab(moon.up)
+                return moon
+            elif (
+                # TODO: should we support .Break() and .Continue() fn calls?
+                isinstance(moon.node, ast.Attribute)
+                and isinstance(moon.node.value, ast.Name)
+                # TODO: do we want some extra? any typo or explicit extra?
+                and moon.node.attr in (
+                    'iter',
+                    'it', 'item',
+                    'i', 'index',
+                    'Break', 'Continue',
+                )
+            ):
+                moon.kind = 'attr'
+                moon.loopname = moon._node.value.id
+                moon.loopattr = moon._node.attr
+                moon.loop_moon = None
+                moon.loop_handlers = []
+                moon.different_depth = False
+                for other in reversed(moonwalker.tree):
+                    if (
+                        other.kind in ('For', 'While', 'for', 'while')
+                    ):
+                        if other.loopname == moon.loopname:
+                            moon.loop_moon = other
+                            break
+                        else:
+                            moon.loop_handlers.append(other)
+                            moon.different_depth = True
+                else:
+                    return None
+                match moon.loopattr:
+                    case 'i' | 'index' if not moon.loop_moon.flags & INDEXED:
+                        moon.loop_moon.flags |= USES_I
+                    case 'it' | 'item' if not moon.loop_moon.flags & INDEXED\
+                        and moon.up.node.__class__ == ast.Delete:
+                        raise TransformError('think u forgot indexed '
+                            f'`with For(..., indexed=True) as {moon.loopname}:'
+                            f' {ast.unparse(moon.up.node)}`'
+                        )
+                    case 'Break':
+                        for handler in moon.loop_handlers:
+                            handler.flags |= USES_BREAK
+                        grab(moon.up.up)
+                        grab(moon.up.node)
+                    case 'Continue':
+                        for handler in moon.loop_handlers:
+                            handler.flags |= USES_CONTINUE
+                        grab(moon.up.up)
+                        grab(moon.up.node)
+                grab(moon.up)
+                return moon
+
+        for moon in MoonWalking(ast_tree, filter_cb=moon_filter).tree:
+            name = moon.loopname
+            match moon.kind:
+                case 'Fn': ...
+                case 'for' | 'while':
+                    moon.pop_extend([
+                        before_the_loop(moon),
+                        moon.node,
+                        after_the_loop(moon),
+                    ], filternone=True)
+                case 'For' if moon.flags & INDEXED:
+                    # let's replace indexed For with a while, plain For with for
+                    new_ast = [ast.Assign(
+                        targets=[ast.Name(f'_yfor_{name}_iter')],
+                        value=[moon.iterator],
+                        lineno=1
+                    )]
+                    wcomparators = [ast.Call(
+                        func=ast.Name('len'),
+                        args=[ast.Name(f'_yfor_{name}_iter')],
+                        keywords=[],
+                    )]
+                    if not moon.flags & RECOMPUTE_END:
+                        new_ast.append(ast.Assign(
+                            targets=[ast.Name(f'_yfor_{name}_end')],
+                            value=moon.end if moon.end else wcomparators[0],
+                            lineno=1,
+                        ))
+                        wcomparators = [ast.Name(f'_yfor_{name}_end')]
+                    if moon.orempty and not moon.flags & FAST_OREMPTY:
+                        new_ast.append(ast.Assign(
+                            targets=[ast.Name(f'_yfor_{name}_isempty')],
+                            value=ast.Constant(True),
+                            lineno=1,
+                        ))
+                        moon.node.body.insert(0, ast.Assign(
+                            targets=[ast.Name(f'_yfor_{name}_isempty')],
+                            value=ast.Constant(False),
+                            lineno=1,
+                        ))
+                    elif moon.orempty:
+                        ...
+                    wtest = ast.Compare(
+                        left=ast.Name(f'_yfor_{name}_i'),
+                        ops=[ast.Lt()],
+                        comparators=moon.end
+                            if moon.flags & RECOMPUTE_END and moon.end
+                            else wcomparators,
+                    )
+                    new_ast.extend([
+                        ast.Assign(
+                            targets=[ast.Name(f'_yfor_{name}_i')],
+                            value=moon.istart,
+                            lineno=1,
+                        ),
+                        before_the_loop(moon),
+                        (theloop := ast.While(
+                            test=wtest,
+                            body=moon.node.body + [
+                                ast.AugAssign(
+                                    target=ast.Name(f'_yfor_{name}_i'),
+                                    op=ast.Add(),
+                                    value=ast.Constant(value=1),
+                                ),
+                                ast.Assert(
+                                    test=ast.Compare(
+                                        left=ast.Name(f'_yfor_{name}_i'),
+                                        ops=[ast.GtE()],
+                                        comparators=[ast.Constant(value=0)]
+                                    ),
+                                    msg=ast.Constant(
+                                        value='u screwed up.. I mean, down, yep, up\n'
+                                              'u screwed up!'),
+                                )
+                            ],
+                            orelse=moon.orelse,
+                        )),
+                        after_the_loop(moon),
+                    ])
+                    if moon.item_name:
+                        theloop.body.insert(0, ast.Assign(
+                            targets=[moon.item_name],
+                            value=ast.Subscript(
+                                value=ast.Name(f'_yfor_{name}_iter'),
+                                slice=ast.Name(f'_yfor_{name}_i'),
+                            ),
+                            lineno=1,
+                        ))
+                    if moon.orempty and moon.flags & FAST_OREMPTY:
+                        new_ast.append(ast.If(
+                            test=ast.UnaryOp(
+                                op=ast.Not(),
+                                operand=ast.Name(f'_yfor_{name}_iter'),
+                            ),
+                            body=moon.orempty,
+                            lineno=1,
+                        ))
+                    moon.pop_extend(new_ast, filternone=True)
+                    # print(ast.dump(_fn, indent=4))
+                case 'For':
+                    theloop = ast.For(
+                        target=ast.Tuple(elts=[
+                            ast.Name(f'_yfor_{name}_i'),
+                            ast.Name(f'_yfor_{name}_it'),
+                        ]) if moon.flags & USES_I else ast.Name(f'_yfor_{name}_it'),
+                        iter=ast.Call(
+                            func=ast.Name('enumerate'),
+                            args=[moon.iterator],
+                            keywords=[],
+                        ) if moon.flags & USES_I else moon.iterator,
+                        body=moon.node.body,
+                        lineno=1,
+                        orelse=moon.orelse,
+                    )
+                    if moon.item_name:
+                        theloop.body.insert(0, ast.Assign(
+                            targets=[moon.item_name],
+                            value=ast.Name(f'_yfor_{name}_it'),
+                            lineno=1,
+                        ))
+                    # sorry about the if+if-elif
+                    if moon.orempty and not moon.flags & FAST_OREMPTY:
+                        theloop.body.insert(0, ast.Assign(
+                            targets=[ast.Name(f'_yfor_{name}_isempty')],
+                            value=ast.Constant(False),
+                            lineno=1,
+                        ))
+                    if moon.orempty and moon.flags & FAST_OREMPTY:
+                        theloop.iter = ast.NamedExpr(
+                            target=ast.Name(f'_yfor_{name}_iter'),
+                            value=theloop.iter,
+                        )
+                        moon.pop_extend([
+                            before_the_loop(moon),
+                            theloop,
+                            after_the_loop(moon),
+                            ast.If(
+                                test=ast.UnaryOp(
+                                    op=ast.Not(),
+                                    operand=ast.Name(f'_yfor_{name}_iter'),
+                                ),
+                                body=moon.orempty,
+                                lineno=1,
+                            ),
+                        ], filternone=True)
+                    elif moon.orempty:
+                        moon.pop_extend([
+                            ast.Assign(
+                                targets=[ast.Name(f'_yfor_{name}_isempty')],
+                                value=ast.Constant(True),
+                                lineno=1,
+                            ),
+                            before_the_loop(moon),
+                            theloop,
+                            after_the_loop(moon),
+                        ], filternone=True)
+                    else:
+                        moon.pop_extend([
+                            before_the_loop(moon),
+                            theloop,
+                            after_the_loop(moon),
+                        ], filternone=True)
+
+                case 'orelse':
+                    moon.pop()
+                case 'orempty' if moon.loop_moon.flags & FAST_OREMPTY:
+                    moon.pop()
+                case 'orempty':
+                    moon.replace(ast.If(
+                        test=ast.Name(f'_yfor_{moon.loopname}_isempty'),
+                        body=moon.node.body,
+                        orelse=[],
+                    ))
+                case 'attr':
+                    if moon.loopattr in ('Break', 'Continue'):
+                        yloopsf_set()
+                    else:
+                        if moon.loopattr == 'item':
+                            moon.loopattr = 'it'
+                        if moon.loopattr == 'index':
+                            moon.loopattr = 'i'
+                        if moon.loop_moon.flags & INDEXED and moon.loopattr == 'it':
+                            moon.replace(ast.Subscript(
+                                value=ast.Name(f'_yfor_{moon.loopname}_iter'),
+                                slice=ast.Name(f'_yfor_{moon.loopname}_i'),
+                            ))
+                        elif moon.loop_moon.kind == 'For':
+                            moon.replace(ast.Name(
+                                f'_yfor_{moon.loopname}_{moon.loopattr}'
+                            ))
+                        else:
+                            raise TransformError('TODO: why are we permessive only upon For?')
+
+                case 'While':
+                    moon.pop_extend([
+                        before_the_loop(moon),
+                        (theloop := ast.While(
+                            test=moon.test_condition,
+                            body=moon.node.body,
+                            orelse=moon.orelse,
+                        )),
+                        after_the_loop(moon),
+                    ], filternone=True)
+                case _:
+                    raise NotImplementedError(f'new kind {moon.kind}')
+    del grab
+

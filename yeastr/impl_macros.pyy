@@ -1,0 +1,295 @@
+class Macros:
+    def __init__(self):
+        self._macros = {}
+
+    def add(self, fn, flags, _args, kwargs):
+        # Just-In-Time / Import-time def_macro
+        fn.ym_flags = flags
+        fn.ymacrokw = kwargs
+        prepare_source(del_source=False)
+        self._macros.update({
+            fn.name: (fn, ast.parse(source).body[0].body)
+        })
+
+    def add_ast(self, fn, name, _ast, flags, _args, kwargs):
+        # Ahead-of-time / build-time def_macro
+        bmacro = fn
+        bmacro.name = name
+        bmacro.ym_flags = flags
+        bmacro.ymacrokw = kwargs
+        self._macros.update({name: (fn, _ast)})
+
+    def retrieve(self, ast_node):
+        if ast_node.__class__ == ast.Name:
+            mname = ast_node.id
+            if (duple := self._macros.get(mname)) is not None:
+                return mname, duple[0], ast_copy(duple[1])
+
+
+_macros = Macros()
+
+
+@def_macro(expr=True)
+def yam_with_call_name(node, call, name):
+    '''Yeastr Ast Match: expr predicate:
+    yam_with_call_name(ast_node, call, 'mElse')
+    will match if ast_node is the parsed form of
+    with mElse():
+    And, will create a variable named 'call'
+    And another one called 'what' (you can grab `as name` from)
+    '''
+    (
+        isinstance(node, ast.With)
+        and isinstance((what := node.items), list)
+        and len(what) == 1
+        and isinstance((call := what[0].context_expr), ast.Call)
+        and call.func.id == name
+    )
+
+@def_macro(expr=True)
+def mLang_evaluate_mIf():
+    eval(compile(ast.unparse(call.args[0]), '_mLang.py', 'eval'), mglobals, mlocals)
+
+@def_macro()
+def perform_body(yr_loop, yr_hint):
+    if action is None:
+        ...
+    elif action == 'skip':
+        assert yam_with_call_name(loop.it, _, 'mIf')
+        del loop.it  # delete with mIf
+        loop.i = max(loop.i - 1, -1)
+    elif action in ('otherwise', 'skip-else'):
+        assert yam_with_call_name(loop.it, _, 'mIf')
+        del loop.it  # delete with mIf
+        assert yam_with_call_name(loop.it, _, 'mElse')
+        del loop.it  # delete with mElse
+        loop.iter[loop.i:loop.i] = new_body
+        loop.i = max(loop.i - 2, -1)
+    elif action in ('then', 'mEval'):
+        assert yam_with_call_name(loop.it, _, 'mIf' if action == 'then' else 'mEval')
+        del loop.it  # delete with mIf
+        loop.iter[loop.i:loop.i] = new_body
+        loop.i -= 1
+        loop.i = max(loop.i - 1, -1)
+    else:
+        assert False, f'unexpected {action} ({hint})'
+
+@def_macro()
+def do_mLang():
+    # first of all, this one is Top-Down, but everything else is Bottom-Up
+    # But since it's a language, interpreting it Bottom Up would be so weird
+    mglobals = {'ast': ast, '__builtins__': restricted_builtins}
+    mEval_ctx = {'__builtins__': restricted_builtins}
+    ymacrokw = fn__.ymacrokw
+    mlocals = dict(ymacrokw)
+    mlocals.update(efiltermapd(
+        lambda k: k.arg in ymacrokw.keys(),
+        lambda k: (k.arg, mLang_conv(k.value)),
+        moon.node.keywords
+    ))
+    def perform(starting_node, next_node=None):
+        if yam_with_call_name(starting_node, call, 'mIf'):
+            if mLang_evaluate_mIf():
+                if yam_with_call_name(next_node, _, 'mElse'):
+                    return 'skip-else', starting_node.body
+                return 'then', starting_node.body
+            else:
+                if yam_with_call_name(next_node, _, 'mElse'):
+                    return 'otherwise', next_node.body
+                else:
+                    return 'skip', []
+        elif (
+            isinstance(starting_node, ast.Call)
+            and isinstance(starting_node.func, ast.Name)
+            and starting_node.func.id == 'mEval'
+        ):
+            return 'mEval', ast.parse(
+                str(eval(ast.unparse(starting_node.args[0]), mEval_ctx)),
+                '_mEval.py',
+                'eval',
+            ).body
+        fields = [
+            (field, getattr(starting_node, field))
+            for field in starting_node._fields
+            if hasattr(starting_node, field)
+        ]
+        with For((field, mbody_ast_field) in fields) as fields_loop:
+            if isinstance(mbody_ast_field, list):
+                with For(subnode in mbody_ast_field, indexed=True) as subnodes_loop:
+                    try:
+                        action, new_body = perform(
+                            subnode, subnodes_loop.iter[subnodes_loop.i + 1]
+                        )
+                    except IndexError:
+                        action, new_body = perform(subnode)
+                    perform_body(subnodes_loop, 'nested')
+
+            elif isinstance(mbody_ast_field, ast.AST):
+                action, new_node = perform(mbody_ast_field, next_node)
+                if action == 'mEval':
+                    setattr(starting_node, field, new_node)
+                elif action is None:
+                    ...
+                else:
+                    assert False, f'unexpected {action} (field)'
+        return None, None
+    # this is not inside of perform
+    with For(mbody_ast in _ast, indexed=True) as mbody_loop:
+        try:
+            action, new_body = perform(mbody_ast, mbody_loop.iter[mbody_loop.i + 1])
+        except IndexError:
+            action, new_body = perform(mbody_ast)
+        assert action != 'mEval', 'unexpected mEval at top'
+        perform_body(mbody_loop, 'top')
+    with For(mbody_ast in _ast, indexed=True) as mbody_loop:
+        if any((yam_with_call_name(mbody_loop.item, _, unexpected)
+                for unexpected in ('mIf', 'mElse', 'mEval'))):
+            breakpoint()
+
+
+@def_macro()
+def macros_to_be_expanded(_macros, yr_node):
+    needs_expansion = (
+        node.__class__ == ast.Call
+        and node.func.__class__ in (ast.Name, ast.Attribute)
+        and node not in deferred_macroe
+        and (retrieved := _macros.retrieve(node.func)) is not None
+    )
+
+
+# TODO: constant parameters probably do not deserve a name
+
+@def_macro()
+def with_macros_impl(_macros):
+    mname, fn__, _ast = retrieved
+    #print(f'EXPANDING {mname}')
+    with For(arg in moon.node.keywords, indexed=True) as kwdloop:
+        if (
+            arg.arg == 'defer_expansion'
+            and isinstance(arg.value, ast.Constant)
+            and arg.value.value
+        ):
+            del kwdloop.it
+            deferred_macroe.append(moon.node)
+            macroexpansionloop.Continue
+    if not fn__.ym_flags & YMF_expr:
+        if not isinstance(moon.up.node, ast.Expr):
+            raise NotImplementedError(f'macro expansion within {moon.up.node.__class__}')
+        is_expression_macro = False
+        where = [
+            p[3:] if p.startswith('yr_') else None
+            for p in signature(fn__).parameters.keys()
+        ]
+        if fn__.ym_flags & YMF_hygienic:
+            assert all((p is None for p in where)), 'incompatibilities?'
+        replacements = []
+        with MoonGrabber() as keepalive:
+            def moon_filter(moon):
+                if moon._node.__class__ == ast.Name and moon._node.id in where:
+                    keepalive(moon.up)
+                    return moon
+            def moon_walk(moonwalker):
+                for _n in moonwalker.tree:
+                    arg = moon.node.args[where.index(_n.node.id)]
+                    _n.replace(arg)
+                    replacements.append(arg)
+                return True
+            for ast__ in _ast:
+                MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
+    else:
+        if (
+            isinstance(_ast[0], ast.Expr)
+            and isinstance(_ast[0].value, ast.Constant)
+            and isinstance(_ast[0].value.value, str)
+        ):
+            _ast.pop(0)  # skip the docstring
+        is_expression_macro = True
+        params = list(signature(fn__).parameters.keys())
+        with MoonGrabber() as keepalive:
+            def moon_filter(moon):
+                if (
+                    isinstance(moon._node, ast.Name)
+                    and moon._node.id in params
+                ):
+                    keepalive(moon.up)
+                    return moon
+            def moon_walk(moonwalker):
+                for _n in moonwalker.tree:
+                    _n.replace(moon.node.args[params.index(_n.node.id)])
+                return True
+            for ast__ in _ast:
+                MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
+    if fn__.ym_flags & YMF_mLang:
+        do_mLang()
+    if is_expression_macro:
+        if len(_ast) > 1:
+            raise TransformError('expression macro expanded into multiple expressions')
+        moon.replace(_ast[0].value)
+    else:
+        assignments = []
+        with For(signature(fn__).parameters) as l:
+            try:
+                ass = ast.Assign(
+                    targets=[ast.Name(id=mp % l.it)],
+                    value=moon.node.args[l.i],
+                    lineno=1,
+                )
+            except IndexError:
+                raise TransformError(f'wrong arity {l.i} (missing {l.it}) in {ast.unparse(moon.node)}')
+            if not is_expression_macro:
+                if ass.value not in replacements:
+                    _ast.insert(0, ass)
+                    assignments.append(ass)
+        where = fn__.__code__.co_varnames if fn__.ym_flags & YMF_hygienic\
+            else signature(fn__).parameters
+        def moon_filter(moon):
+            if (
+                isinstance(moon._node, ast.Name)
+                and moon._node.id in where
+                and moon._up.node not in assignments
+                and moon._node not in replacements
+            ):
+                return moon
+        def moon_walk(moonwalker):
+            for _n in moonwalker.tree:
+                #print(f'mangling {_n.node.id} -> {mp % _n.node.id}')
+                _n.node.id = mp % _n.node.id
+            return True
+        for ast__ in _ast:
+            MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
+        moon.up.pop_extend(_ast)
+
+@def_macro()
+def with_macros_impl_wrapper(macros_, some_ast, never_defer):
+    mp = 'ymacro_%s'
+    deferred_macroe = []
+    # we are expanding all the macro found, then we repeat
+    # until no more macros are to be expanded
+    # this highly different from what you'd expect from a lisp perspective
+    with MoonGrabber() as macro_keepalive:
+        def filter_macro_moons(moon):
+            macros_to_be_expanded(macros_, moon.node)
+            if needs_expansion:
+                moon.retrieved = retrieved
+                macro_keepalive(moon, moon.up, moon._up.up)
+                return moon
+        # A macro that expands into itself is just infinite
+        # But it's not true recursion, memory usage won't ramp up!
+        # adding a depth check, so you don't wait forever
+        depth_counter = 0
+        depth_limit = 500 # sys.getrecursionlimit()
+        macro_moons = list(MoonWalking(some_ast, filter_cb=filter_macro_moons).tree)
+        with While(macro_moons) as loop_until_no_macros:
+            if depth_counter > depth_limit:
+                raise RecursionError(f'macro expansion limit({depth_limit}): ' +
+                    ", ".join((moon.retrieved[0] for moon in macro_moons))
+                )
+            if never_defer:
+                deferred_macroe = []
+            with For(moon in macro_moons) as macroexpansionloop:
+                retrieved = moon.retrieved
+                with_macros_impl(macros_)
+            macro_keepalive.reset()
+            macro_moons = list(MoonWalking(some_ast, filter_cb=filter_macro_moons).tree)
+            depth_counter += 1
+

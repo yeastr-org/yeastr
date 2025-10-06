@@ -1,0 +1,215 @@
+@def_macro()
+def backport_match_helpers():
+    def backport_MatchValue_to_expr(subj, match_value):
+        return ast.Compare(
+            left=subj,
+            ops=[ast.Eq()],
+            comparators=[match_value.value],
+        )
+
+    def backport_MatchSingleton_to_expr(subj, match_singleton):
+        return ast.Compare(
+            left=ast.Constant(match_singleton.value),
+            ops=[ast.Is()],
+            comparators=[subj],
+        )
+
+    def backport_MatchAs_to_expr(subj, match_as):
+        if match_as.pattern:
+            assert match_as.name
+            return ast.BoolOp(op=ast.And(), values=[
+                backport_dispatch_match(subj, match_as.pattern),
+                ast.BoolOp(op=ast.Or(), values=[
+                    ast.NamedExpr(target=ast.Name(match_as.name), value=subj),
+                    ast.Constant(True)
+                ])
+            ])
+        if (patname := match_as.name):
+            return ast.BoolOp(op=ast.Or(), values=[
+                ast.NamedExpr(target=ast.Name(patname), value=subj),
+                ast.Constant(True),
+            ])
+        else:
+            return ast.Constant(True)
+
+    def backport_MatchOr_to_expr(subj, match_or):
+        # could also be a call to any...
+        return ast.BoolOp(op=ast.Or(), values=[
+            backport_dispatch_match(subj, pat)
+            for pat in match_or.patterns
+        ])
+
+    def backport_MatchSequence_to_expr(subj, match_seq):
+        seq_check = ast.Call(func=ast.Name('ymatch_as_seq'), args=[subj], keywords=[])
+        seq_len_check = (
+            ast.Compare(
+                left=ast.Constant(len([True
+                    for pat in match_case.pattern.patterns
+                    if not isinstance(pat, ast.MatchStar)
+                ])),
+                ops=[ast.Lt()],
+                comparators=[ast.Call(func=ast.Name('len'), args=[subj], keywords=[])],
+            ) if any((isinstance(pat, ast.MatchStar) for pat in match_seq.patterns))
+            else ast.Compare(
+                left=ast.Constant(len(match_seq.patterns)),
+                ops=[ast.Eq()],
+                comparators=[ast.Call(func=ast.Name('len'), args=[subj], keywords=[])],
+            )
+        )
+        exprs = []
+        star = False
+        for idx, subpattern in enumerate(match_seq.patterns):
+            subsubj = ast.Subscript(value=subj, slice=
+                ast.Constant(idx) if not star else ast.UnaryOp(op=ast.USub(),
+                    operand=ast.Constant(len(match_seq.patterns) - idx)
+                )
+            )
+            if isinstance(subpattern, ast.MatchStar):
+                star = idx
+                exprs.append(backport_MatchStar_to_expr(
+                    subj, subpattern, len(match_seq.patterns), idx
+                ))
+            else:
+                exprs.append(backport_dispatch_match(subsubj, subpattern))
+        return ast.BoolOp(op=ast.And(), values=[seq_check, seq_len_check, *exprs])
+
+    def backport_MatchStar_to_expr(subj, match_star, len_, pos):
+        return ast.BoolOp(op=ast.Or(), values=[
+            ast.NamedExpr(
+                target=ast.Name(match_star.name if match_star.name else '_'),
+                value=ast.Subscript(
+                    value=subj,
+                    slice=ast.Slice(
+                        lower=ast.Constant(pos),
+                        upper=ast.BinOp(
+                            left=ast.Call(func=ast.Name('len'), args=[subj], keywords=[]),
+                            op=ast.Sub(),
+                            right=ast.Constant(len_ - pos - 1)
+                        ),
+                    ),
+                ),
+            ),
+            ast.Constant(True)
+        ])
+
+    def backport_MatchClass_to_expr(subj, match_class):
+        positional_matchers = []
+        for pati, pat_ in enumerate(match_class.patterns):
+            patsubj = ast.Call(
+                func=ast.Name('getattr'),
+                args=[subj, ast.Subscript(
+                    value=ast.Call(func=ast.Name('ymatch_positional_origin'), args=[subj]),
+                    slice=ast.Constant(pati),
+                )],
+                keywords=[],
+            )
+            positional_matchers.append(backport_dispatch_match(patsubj, pat_))
+        explicit_matchers = []
+        for kwi, kwd in enumerate(match_class.kwd_attrs):
+            kwdsubj = ast.Attribute(value=subj, attr=kwd)
+            pexpr = ast.BoolOp(op=ast.And(), values=[
+                ast.Call(func=ast.Name('hasattr'), args=[subj, ast.Constant(kwd)], keywords=[]),
+                ast.BoolOp(op=ast.Or(), values=[
+                    ast.NamedExpr(target=ast.Name(kwd), value=kwdsubj),
+                    ast.Constant(True),
+                ]),
+            ])
+            kwdpat = match_class.kwd_patterns[kwi]
+            pexpr.values.append(backport_dispatch_match(kwdsubj, kwdpat))
+            explicit_matchers.append(pexpr)
+
+        return ast.BoolOp(op=ast.And(), values=[
+            ast.Call(
+                func=ast.Name('isinstance'),
+                args=[subj, match_class.cls],
+                keywords=[],
+            ),
+            *positional_matchers,
+            *explicit_matchers,
+        ])
+
+    def backport_MatchMapping_to_expr(subj, match_mapping):
+        matchers = []
+        for key, pat in zip(match_mapping.keys, match_mapping.patterns):
+            matchers.append(
+                ast.Compare(left=key, ops=[ast.In()], comparators=[subj]),
+            )
+            get_ = ast.Attribute(value=subj, attr='get')
+            patsubj = ast.Call(func=get_, args=[key], keywords=[])
+            matchers.append(backport_dispatch_match(patsubj, pat))
+            if match_mapping.rest:  # **rest
+                matchers.append(ast.BoolOp(op=ast.Or(), values=[
+                    ast.NamedExpr(
+                        target=ast.Name(match_mapping.rest),
+                        value=ast.DictComp(
+                            key=ast.Name('k'), value=ast.Name('v'),
+                            generators=[ast.comprehension(
+                                target=ast.Tuple(elts=[ast.Name('k'), ast.Name('v')]),
+                                iter=ast.Call(func=ast.Attribute(
+                                    value=subj, attr='items'), args=[], keywords=[]),
+                                ifs=[ast.Compare(
+                                    left=ast.Name('k'),
+                                    ops=[ast.NotIn()],
+                                    comparators=[ast.Tuple(elts=match_mapping.keys)],
+                                )],
+                                is_async=0,
+                            )]
+                        )
+                    ),
+                    ast.Constant(value=True)
+                ]))
+        return ast.BoolOp(op=ast.And(), values=[
+            ast.Call(func=ast.Name('ymatch_as_map'), args=[subj], keywords=[]),
+            *matchers,
+        ])
+
+    def backport_MatchCase_to_if(subj, match_case):
+        expr = backport_dispatch_match(subj, match_case.pattern)
+        return ast.If(
+            test=(
+                ast.BoolOp(op=ast.And(), values=[expr, match_case.guard])
+                if match_case.guard else expr
+            ),
+            body=match_case.body,
+            orelse=[],
+        )
+
+    def backport_dispatch_match(subj, pat):
+        return {
+            ast.MatchAs: backport_MatchAs_to_expr,
+            ast.MatchSingleton: backport_MatchSingleton_to_expr,
+            ast.MatchValue: backport_MatchValue_to_expr,
+            ast.MatchOr: backport_MatchOr_to_expr,
+            ast.MatchSequence: backport_MatchSequence_to_expr,
+            # ast.MatchStar: backport_MatchStar_to_expr,  # not dispatchable
+            ast.MatchClass: backport_MatchClass_to_expr,
+            ast.MatchMapping: backport_MatchMapping_to_expr,
+        }[type(pat)](subj, pat)
+
+
+@def_macro()
+def backport_match_impl(yr_ast_tree):
+    backport_match_helpers()
+    match_counter = 0
+    def moon_filter(moon):
+        if isinstance(moon._node, ast.Match):
+            moon.up  # incref
+            return moon
+    for moon in MoonWalking(ast_tree, filter_cb=moon_filter).tree:
+        match_subject = moon.node.subject
+        new_body = [
+            ast.Assign(
+                targets=[(subj := ast.Name('ymatch_%d_subject' % match_counter))],
+                value=match_subject,
+                lineno=1,
+            ),
+        ]
+        new_body.append(backport_MatchCase_to_if(subj, moon.node.cases[0]))
+        orelse = new_body[-1].orelse
+        for match_case in moon.node.cases[1:]:
+            orelse.append((last_if := backport_MatchCase_to_if(subj, match_case)))
+            orelse = last_if.orelse
+        moon.pop_extend(new_body)
+        match_counter += 1
+
+

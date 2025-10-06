@@ -1,0 +1,40 @@
+_bfb_bs__ = '\\'
+_bfb_cr__ = '\r'
+_bfb_nl__ = '\n'
+
+def fn():
+    ymacro_str_ = 'abcdef'
+    _str = [*ymacro_str_]
+    del ymacro_str_
+    yloopsf = 0
+    while True:
+        _yfor_chloop_iter = _str
+        _yfor_chloop_i = 0
+        yloopsf = 0
+        while _yfor_chloop_i < len(_yfor_chloop_iter):
+            ch = _yfor_chloop_iter[_yfor_chloop_i]
+            ymatch_0_subject = ch
+            if ymatch_0_subject == 'a' or ymatch_0_subject == 'b':
+                _yfor_chloop_iter[_yfor_chloop_i] = 'c'
+            elif True and all({x == 'c' for x in _yfor_chloop_iter}):
+                yloopsf |= 2
+                break
+            elif True and ch != 'c':
+                del _yfor_chloop_iter[_yfor_chloop_i]
+                _yfor_chloop_i -= 1
+                if _yfor_chloop_i == len(_yfor_chloop_iter):
+                    _yfor_chloop_i -= 1
+            _yfor_chloop_i += 1
+            assert _yfor_chloop_i >= 0, 'u screwed up.. I mean, down, yep, up\nu screwed up!'
+        if yloopsf & 2:
+            yloopsf = 0
+            break
+        elif yloopsf:
+            break
+    return ''.join(_str) + '.de'
+print('%s.%s' % ('media', fn()))
+print(f"py{f'{_bfb_nl__}--' * 2}con")
+
+
+
+__all__ = ('fn',)

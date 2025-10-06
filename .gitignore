@@ -1,0 +1,15 @@
+__pycache__
+dist
+*.py[co]
+*.egg-info
+
+*.svg
+PEP*
+
+*.swp
+
+_debug_last.py
+
+build/
+
+downloads/

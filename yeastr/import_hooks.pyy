@@ -1,0 +1,49 @@
+from importlib.machinery import FileFinder, PathFinder, SourceFileLoader
+import sys
+
+class YeastrFileLoader(SourceFileLoader):
+    def cache_from_source(self, path):
+        raise NotImplementedError('disables pyc cache')
+
+    def _cache_bytecode(self, source_path, bytecode_path, data):
+        raise NotImplementedError('disables pyc cache')
+
+    @staticmethod
+    def source_to_code(data, path, *, _optimize=-1):
+        pep425 = 'py313-none-any'  # TODO: sys.version_info
+        # print(data)
+        ying = BuildTimeTransformer(data.decode('utf-8'), pep425)
+        source = ying.yang(_macros)
+        # print(source)
+        return compile(
+            source,
+            path, 'exec', dont_inherit=True, optimize=_optimize
+        )
+
+class YeastrPathFinder(PathFinder):
+    path_importer_cache = {}
+
+    @classmethod
+    def _path_importer_cache(cls, path):
+        try:
+            finder = cls.path_importer_cache[path]
+        except KeyError:
+            finder = FileFinder(path, (YeastrFileLoader, ['.ypy']))
+            cls.path_importer_cache[path] = finder
+        return finder
+
+    @classmethod
+    def invalidate_caches(cls):
+        for finder in list(cls.path_importer_cache.values()):
+            if hasattr(finder, 'invalidate_caches'):
+                finder.invalidate_caches()
+
+def activate():
+    if YeastrPathFinder not in sys.meta_path:
+        sys.meta_path.append(YeastrPathFinder)
+
+def deactivate():
+    if YeastrPathFinder in sys.meta_path:
+        sys.meta_path.remove(YeastrPathFinder)
+
+activate()

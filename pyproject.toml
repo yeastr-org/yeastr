@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yeastr"
+version = "0.0.1"
+authors = [
+  { name="Castiglia Vincenzo", email="castix@autistici.org" },
+]
+description = "Syntactical Sugar Transformations"
+readme = "dontreadme.md"
+requires-python = ">=3.8"
+dynamic = ["classifiers"]
+#license = "Python Software Foundation License 2.0"
+license = "PSF-2.0"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/CastixGitHub/yeastr"
+Issues = "https://github.com/CastixGitHub/yeastr/issues"
+
+[project.optional-dependencies]
+# TODO: tests... well, took a different path...
+# test = ["pytest", "tox"]

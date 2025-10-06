@@ -1,0 +1,77 @@
+try:
+    from bootstrapped import *
+except ImportError:
+    from yeastr.bootstrapped import *
+
+def with_macros(debug=False):
+    def _with_macros(fn):
+        prepare_source()
+        with_macros_impl_wrapper(_macros, _fn, True)
+        and_so_on()
+    return _with_macros
+
+
+def with_namedloops(debug=False):
+    def _with_namedloops(fn):
+        prepare_source()
+        with_namedloops_impl(_fn)
+        and_so_on()
+    return _with_namedloops
+
+
+# With the assumption that comprehensions run faster
+# than their functional equivalent, due to better optimizations
+# we trasform your usage of functional into comprehensions.
+# The e stands for eager.
+# Due to their lazy nature, (they are already generators)
+# it makes no sense converting map and filter into comprehensions
+# `list(map(` or `[*map(` on the other hand are terrible, you need `emap(`
+
+# (confirming the assumption)
+# >>> t = perf_counter(); [*map(lambda x: x+1, range(1_000_000))] and False; print(perf_counter() - t)
+# False
+# 0.3758267271332443
+# >>> t = perf_counter(); [x+1 for x in range(1_000_000)] and False; print(perf_counter() - t)
+# False
+# 0.24585094396024942
+# beware: due to allocation, the first run of the bench took 0.42224904196336865
+
+def with_call2comp(debug=False):
+    def _with_call2comp(fn):
+        prepare_source()
+        with_call2comp_impl(_fn)
+        and_so_on()
+    return _with_call2comp
+
+# Please keep in mind that backporting through decorators is
+# almost useless: you need to run them with a newer python
+# and store the source somewhere if you actually want to run the backported
+# code on older python. It's here just to allow the max flexibility
+
+from sys import version_info, stderr
+
+def backport_fstring_backslash(debug=False):
+    def _backport_fstring_backslash(fn):
+        prepare_source()
+        backport_fstring_backslash_impl(_fn)
+        and_so_on()
+    return _backport_fstring_backslash
+
+
+def backport_match(debug=False, custom_globals={}):
+    def _backport_match(fn):
+        prepare_source()
+        backport_match_impl(_fn)
+        and_so_on(custom_globals=True)
+    return _backport_match
+
+
+def backport_dict_ops(debug=False):
+    if version_info > (3, 9):
+        def _backport_dict_ops(fn):
+            prepare_source()
+            backport_dict_ops_impl(_fn)
+            and_so_on()
+        return _backport_dict_ops
+    print('You need a newer python to backport', file=stderr)
+    return lambda _fn: lambda *a, **kw: None

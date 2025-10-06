@@ -1,0 +1,161 @@
+@def_macro()
+def get_macro_arguments(node: ast.FunctionDef):
+    assert not node.args.defaults, 'macro cannot have defaults, put kwargs on def_macro itself'
+    args = node.args.args
+    call = [
+        call
+        for call in tln.decorator_list
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == 'def_macro'
+    ][0]
+    kwargs = {k.arg: mLang_conv(k.value) for k in call.keywords}
+    strip = (
+        'strip_def'    # strip the macro definition
+        if kwargs.get('strip', True) else
+        'strip_strip'  # strip just strip parameter
+    )
+    flags = 0
+    if kwargs.get('hygienic', False):
+        flags |= YMF_hygienic
+    if kwargs.get('mLang', False):
+        flags |= YMF_mLang
+    if kwargs.get('expr', False):
+        flags |= YMF_expr
+    assert not (flags & YMF_expr and flags & YMF_hygienic), "just doesn't make sense"
+
+
+@def_macro()
+def prepare_macro():
+    mnode = ast_copy(tln)
+    # this one assert... tell me if you crash upon this
+    assert len(mnode.decorator_list) == 1, 'TODO: What to do with other decorators?'
+    mnode.decorator_list = []
+    _here = {'ast': ast}  # please, don't add type hints to macros... (py3.8 compat)
+    exec(  # executing the fn definition, allowing decorators leads to RCE
+        compile(ast.unparse(mnode), f'_m_{tln.name}.py', 'exec'),
+        _here
+    )
+    if flags & YMF_expr and not flags & YMF_mLang and len(macro_ast) > 1:
+        if (
+            macro_ast[0].__class__ == ast.Expr
+            and macro_ast[0].value.__class__ == ast.Constant
+            and (docst := macro_ast[0].value.value)
+        ):
+            assert len(macro_ast) == 2, 'Bad macro'
+            macro_ast = macro_ast[1:]
+        else:
+            assert False, "You're using it wrong. (TODO: Provide explainations)"
+    macros.add_ast(_here[tln.name], tln.name, macro_ast, flags, args, kwargs)
+
+
+@def_macro()
+def def_macro_impl():
+    with For(tln in self.ast.body, indexed=True) as def_macro_stage:
+        if 'decorator_list' in tln._fields:
+            # def def_macro(...  hopefully helps grep
+            if 'def_macro' in (
+                dec.func.id if dec_call else dec.id
+                for dec in tln.decorator_list
+                if ((dec_ := dec) and
+                    (dec_call :=
+                        isinstance(dec, ast.Call)
+                        and isinstance(dec.func, ast.Name))
+                    or isinstance(dec, ast.Name)
+                )
+            ):
+                if not dec_call:
+                    # assuming the above remains a genexpr, not a comprehension
+                    # We replace any @def_macro with @def_macro()
+                    dec_index = tln.decorator_list.index(dec_)
+                    tln.decorator_list[dec_index] = ast.Call(
+                        func=ast.Name('def_macro'),
+                        args=[], keywords=[],
+                    )
+                macro_ast = tln.body  # TODO: early backporting
+                get_macro_arguments(tln)
+                if strip == 'strip_def':
+                    if 'hygienic' in kwargs: del kwargs['hygienic']
+                    if 'mLang' in kwargs:    del kwargs['mLang']
+                    prepare_macro()
+                    del def_macro_stage.it
+                    def_macro_stage.i -= 1
+                elif strip == 'strip_strip':
+                    with For(kw in call.keywords, indexed=True) as kwloop:
+                        if kw.arg == 'strip':
+                            del kwloop.it
+                            kwloop.Break
+                    prepare_macro()
+                else:
+                    # eg: no_strip, to optimize out strip_strip's short loop?
+                    # eg: never, to automatically set defer_expansion
+                    raise NotImplementedError('well, that\'s new')
+
+
+@def_macro()
+def backporters():
+    backported_fstring = False
+    if self.version_info < (3, 12):
+        backport_fstring_backslash_impl(self.ast)
+    if self.version_info < (3, 10):
+        backport_match_impl(self.ast)
+
+
+@def_macro()
+def additionally():
+    # - Maybe inject variables
+    if backported_fstring:
+        for ass in _macros.retrieve(
+            ast.Name('inject_fstring_backslash_vars')
+        )[2]:
+            assert isinstance(ass, ast.Assign), 'what am I injecting?'
+            self.ast.body.insert(0, ass)  # reversed order, who cares?
+    # - Finally add the configured yeastr runtime import
+    if self.autoimport:
+        add_at_the_module_beginning(self.ast, ast.Try(
+            body=[ast.ImportFrom(
+                module=f'yeastr.{self.autoimport}',
+                names=[ast.alias(name='*')],
+                level=0,
+            )],
+            handlers=[ast.ExceptHandler(
+                type=ast.Name('ImportError'),
+                body=[ast.ImportFrom(
+                    module=self.autoimport,
+                    names=[ast.alias(name='*')],
+                    level=0.
+                )],
+            )],
+            orelse=[],
+            finalbody=[],
+        ))
+    ...
+
+
+class BuildTimeTransformer:
+    def __init__(
+        self,
+        file_content,
+        pyver,  # pep425 str
+        autoimport='minimal_runtime',
+):
+        # autoimport should be one of:
+        # - False/None (no autoimport at all)
+        # - minimal_runtime (backport match, call2comp fallbacks)
+        # - bootstrapped (the whole thing)
+        # - import_hooks (imports bootstrapped and enables ihooks for .ypy files)
+        # - as_decorator (the whole thing but exposed through decorators instead)
+        self.ast = ast.parse(file_content)
+        self.version_info = (int(pyver[2]), int(pyver[3:].split('-', 1)[0]))
+        self.autoimport = autoimport
+
+    def yang(self, macros):
+        def_macro_impl()
+        with_macros_impl_wrapper(macros, self.ast, False)
+        backporters()
+        with_namedloops_impl(self.ast)
+        with_call2comp_impl(self.ast)
+        if self.version_info < (3, 9):  # but this one must go after call2comp
+            backport_dict_ops_impl(self.ast)
+        additionally()
+        return ast.unparse(self.ast)

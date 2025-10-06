@@ -1,0 +1,27 @@
+@def_macro()
+def m_before(str_):
+    _str = [*str_]
+    del str_
+
+@def_macro()
+def m_after():
+    return ''.join(_str) + '.de'
+
+def fn():
+    m_before('abcdef')
+    with While(True) as loop:
+        with For(ch in _str, indexed=True) as chloop:
+            match ch:
+                case 'a' | 'b':
+                    chloop.it = 'c'
+                case _ if all(emaps(lambda x: x == 'c', chloop.iter)):
+                    loop.Break
+                case _ if ch != 'c':
+                    del chloop.it
+                    chloop.i -= 1
+                    if chloop.i == len(chloop.iter):
+                        chloop.i -= 1
+    m_after()
+
+print('%s.%s' % ('media', fn()))
+print(f"py{'\n--' * 2}con")

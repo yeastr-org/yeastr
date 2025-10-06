@@ -1,0 +1,44 @@
+# currently kinda private: unfinished,
+# covers just a few usage cases
+# this should be extended
+
+# ValueError("Unable to avoid backslash in f-string expression part")
+# i see...
+@def_macro(strip=False)
+def inject_fstring_backslash_vars():
+    _bfb_nl__ = '\n'
+    _bfb_cr__ = '\r'
+    _bfb_bs__ = '\\'
+
+
+@def_macro()
+def backport_fstring_backslash_impl(yr_ast_tree):
+    _yre_backport_fstring = re.compile(r'([\n\r\\])')
+    _ymap_backport_fstring = {
+        '\n': '_bfb_nl__',
+        '\r': '_bfb_cr__',
+        '\\': '_bfb_bs__',
+    }
+    with MoonGrabber() as grab:
+        def moon_filter(moon):
+            if moon._node.__class__ == ast.JoinedStr:
+                grab(moon._up)
+            if moon._node.__class__ == ast.Constant and isinstance(moon._node.value, str):
+                if (upper := moon.upper(ast.JoinedStr)):
+                    moon.splitted = _yre_backport_fstring.split(moon._node.value)
+                    if len(moon.splitted) > 1:
+                        moon.up  # incref
+                        return moon
+        for moon in MoonWalking(ast_tree, filter_cb=moon_filter).tree:
+            moon.replace(
+                ast.JoinedStr(
+                    ast.FormattedValue(
+                        value=ast.Name(varname),
+                        conversion=-1,
+                    )
+                    if (varname := _ymap_backport_fstring.get(v))
+                    else ast.Constant(v)
+                    for v in moon.splitted
+                )
+            )
+            backported_fstring = True

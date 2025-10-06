@@ -1,0 +1,261 @@
+@def_macro(expr=True)
+def yam_call_names(ast_node, names, bind_as):
+    (
+        isinstance(ast_node, ast.Call)
+        and isinstance(ast_node.func, ast.Name)
+        and (bind_as := ast_node.func.id) in names
+    )
+
+@def_macro()
+def with_call2comp_impl(yr_ast_tree):
+    # Beware, when we fallback we remove all of the kwargs
+    def moon_filter(moon):
+        if yam_call_names(
+            moon._node,
+            map(
+                lambda p: ''.join(p),
+                itertools.product(('emap', 'efilter', 'efiltermap'),
+                                  ('', 'l', 'd', 's'))),
+            fname,
+        ):
+            moon.fname = fname
+            with For(v in efiltermap(lambda k, v: k == 'performance_required',
+                                     lambda k, v: v,  # sorry feels dumb
+                                     emap(lambda kw: (kw.arg, kw.value),
+                                          moon._node.keywords))
+            ) as ekwdloop:
+                assert isinstance(v, ast.Constant), v
+                moon.performance_required = v.value
+                ekwdloop.Break
+            with ekwdloop.orelse:
+                moon.performance_required = True
+            if len((args := moon._node.args)) < 2:
+                raise TransformError(f'Where\'s my args? {ast.unparse(moon._node)}')
+            moon.arg0 = args[0]
+            moon.arg1 = args[1]
+            if fname.startswith('efiltermap'):
+                if len(args) < 3:
+                    raise TransformError('signature: efiltermap(filter_fn, map_fn, iterator)')
+                moon.arg2 = args[2]
+            moon.up  # incref
+            return moon
+    for moon in MoonWalking(ast_tree, filter_cb=moon_filter).tree:
+        match moon.fname, type(moon.arg0), type(moon.arg1):
+            case 'emap' | 'emapl' | 'emaps', ast.Lambda, _:
+                comp = ast.SetComp if moon.fname == 'emaps' else ast.ListComp
+                moon.replace(comp(
+                    elt=moon.arg0.body,
+                    generators=[ast.comprehension(
+                        target=(
+                            ast.Name(_args[0].arg)
+                            if len((_args := moon.arg0.args.args)) == 1
+                            else ast.Tuple(elts=emap(lambda _arg: ast.Name(_arg.arg), _args))
+                        ),
+                        iter=moon.arg1,
+                        is_async=False,
+                        ifs=[],
+                    )],
+                ))
+            case 'emap' | 'emapl' | 'emaps', _, _ if moon.performance_required:
+                # We have no way to tell if aboba needs unpacking
+                # so this one can be wrong, should raise a warning
+                # or better, add a parameter for that
+                comp = ast.SetComp if moon.fname == 'emaps' else ast.ListComp
+                moon.replace(comp(
+                    elt=ast.Call(
+                        func=moon.arg0,
+                        args=[ast.Name('aboba')],
+                        keywords=[],
+                    ),
+                    generators=[ast.comprehension(
+                        target=ast.Name('aboba'),
+                        iter=moon.arg1,
+                        is_async=False,
+                        ifs=[],
+                    )],
+                ))
+            case 'emap' | 'emapl' | 'emaps', _, _:
+                moon.node.keywords = []
+            case 'emapd', ast.Lambda, _:
+                t = moon.arg0.body
+                if not isinstance(t, ast.Tuple) or len(t.elts) != 2:
+                    raise TransformError(f'{moon.fname}: lambda body not 2-tuple')
+                moon.replace(ast.DictComp(
+                    key=t.elts[0],
+                    value=t.elts[1],
+                    generators=[ast.comprehension(
+                        target=ast.Tuple(emap(
+                            lambda _arg: ast.Name(_arg.arg),
+                            moon.arg0.args.args
+                        )),
+                        iter=moon.arg1,
+                        is_async=False,
+                        ifs=[],
+                    )],
+                ))
+            case 'emapd', _, _ if moon.performance_required:
+                # how am I supposed to bind key and value?
+                raise TransformError(f'{moon.fname}: arg 1 should be lambda: 2-tuple\ntry with performance_required=False\n{ast.unparse(moon.node)}')
+            case 'emapd', _, _:
+                moon.node.keywords = []
+            case 'efilter' | 'efilters', ast.Lambda, _:
+                comp = ast.SetComp if moon.fname == 'efilters' else ast.ListComp
+                moon.replace(comp(
+                    elt=(
+                        ast.Name(_args[0].arg)
+                        if len((_args := moon.arg0.args.args)) == 1
+                        else ast.Tuple(elts=emap(
+                            lambda _arg: ast.Name(_arg.arg),
+                            _args))
+                    ),
+                    generators=[ast.comprehension(
+                        target=(
+                            ast.Name(_args[0].arg)
+                            if len((_args := moon.arg0.args.args)) == 1
+                            else ast.Tuple(elts=[ast.Name(_arg.arg)
+                                                 for _arg in _args])
+                        ),
+                        iter=moon.arg1,
+                        is_async=False,
+                        ifs=[moon.arg0.body],
+                    )],
+                ))
+            case 'efilter' | 'efilters', _, _:
+                comp = ast.SetComp if moon.fname == 'efilters' else ast.ListComp
+                moon.replace(comp(
+                    elt=ast.Name('aboba'),
+                    generators=[ast.comprehension(
+                        target=ast.Name('aboba'),
+                        iter=moon.arg1,
+                        is_async=False,
+                        ifs=[ast.Call(
+                            func=moon.arg0,
+                            args=[ast.Name('aboba')],
+                            keywords=[],
+                        )],
+                    )],
+                ))
+            case 'efilterd', ast.Lambda, _:
+                _args = emap(lambda _a: ast.Name(_a.arg), moon.arg0.args.args)
+                moon.replace(ast.DictComp(
+                    key=_args[0],
+                    value=_args[1],
+                    generators=[ast.comprehension(
+                        target=ast.Tuple(elts=_args),
+                        iter=moon.arg1,
+                        is_async=False,
+                        ifs=[moon.arg0.body],
+                    )],
+                ))
+            case 'efilterd', _, _:
+                # uhm, what if the fn just accepts k or v?
+                moon.replace(ast.DictComp(
+                    key=ast.Name('k'),
+                    value=ast.Name('v'),
+                    generators=[ast.comprehension(
+                        target=ast.Tuple(elts=[
+                            ast.Name('k'), ast.Name('v')
+                        ]),
+                        iter=moon.arg1,
+                        is_async=False,
+                        ifs=[ast.Call(
+                            moon.arg0,
+                            args=[
+                                ast.Name('k'), ast.Name('v')
+                            ],
+                            keywords=[],
+                        )]
+                    )]
+                ))
+            case 'efiltermap' | 'efiltermapl' | 'efiltermaps', ast.Lambda, ast.Lambda:
+                assert moon.arg0.args.args[0].arg == moon.arg1.args.args[0].arg,\
+                    'lambda args must be the same'
+                comp = ast.SetComp if moon.fname == 'efiltermaps' else ast.ListComp
+                moon.replace(comp(
+                    elt=moon.arg1.body,
+                    generators=[ast.comprehension(
+                        target=(ast.Name(_args[0].arg)
+                                if len((_args := moon.arg0.args.args)) == 1
+                                else ast.Tuple(elts=[ast.Name(_arg.arg)
+                                                     for _arg in _args])
+                        ),
+                        iter=moon.arg2,
+                        is_async=False,
+                        ifs=[moon.arg0.body],
+                    )],
+                ))
+            case 'efiltermap' | 'efiltermapl' | 'efiltermaps', ast.Lambda, _:
+                comp = ast.SetComp if moon.fname == 'efiltermaps' else ast.ListComp
+                if len((_args := moon.arg0.args.args)) != 1:
+                    raise TransformError(f'{moon.fname}: filter lambda must accept only one arg')
+                arg = _args[0].arg
+                moon.replace(comp(
+                    elt=ast.Call(
+                        func=moon.arg1,
+                        args=[ast.Name(arg)],
+                        keywords=[],
+                    ),
+                    generators=[ast.comprehension(
+                        target=ast.Name(arg),
+                        iter=moon.arg2,
+                        is_async=False,
+                        ifs=[moon.arg0.body],
+                    )],
+                ))
+            case 'efiltermap' | 'efiltermapl' | 'efiltermaps', _, ast.Lambda:
+                comp = ast.SetComp if moon.fname == 'efiltermaps' else ast.ListComp
+                if len((_args := moon.arg1.args.args)) != 1:
+                    raise TransformError(f'{moon.fname}: map lambda must accept only one arg')
+                arg = _args[0].arg
+                moon.replace(comp(
+                    elt=moon.arg1.body,
+                    generators=[ast.comprehension(
+                        target=ast.Name(arg),
+                        iter=moon.arg2,
+                        is_async=False,
+                        ifs=[ast.Call(
+                            func=moon.arg0,
+                            args=[ast.Name(arg)],
+                            keywords=[],
+                        )],
+                    )],
+                ))
+            case 'efiltermapd', ast.Lambda, ast.Lambda:
+                _args = emap(lambda _a: ast.Name(_a.arg), moon.arg0.args.args)
+                if efiltermap(lambda n1, n2: n1.id != n2.id,
+                              lambda n1, n2: True,
+                              zip(_args,
+                                  emap(lambda _a: ast.Name(_a.arg),
+                                       moon.arg1.args.args))):
+                    raise TransformError(f'{moon.fname}: lambda args doesn\'t match')
+                moon.replace(ast.DictComp(
+                    key=moon.arg1.body.elts[0],
+                    value=moon.arg1.body.elts[1],
+                    generators=[ast.comprehension(
+                        target=ast.Tuple(elts=_args) if len(_args) != 1 else _args[0],
+                        iter=moon.arg2,
+                        is_async=False,
+                        ifs=[moon.arg0.body],
+                    )],
+                ))
+            case 'efiltermapd', _, ast.Lambda:
+                # it's on you to match signatures
+                _args = emap(lambda _a: ast.Name(_a.arg), moon.arg1.args.args)
+                moon.replace(ast.DictComp(
+                    key=moon.arg1.body.elts[0],
+                    value=moon.arg1.body.elts[1],
+                    generators=[ast.comprehension(
+                        target=ast.Tuple(elts=_args),
+                        iter=moon.arg2,
+                        is_async=False,
+                        ifs=[ast.Call(
+                            func=moon.arg0,
+                            keywords=[],
+                            args=_args)])]))
+            case 'efiltermapd', ast.Lambda, _ if moon.performance_required:
+                # it's on you to match signatures
+                raise TransformError(f'{moon.fname}: arg 1 should be lambda: 2-tuple\ntry with performance_required=False\n{ast.unparse(moon.node)}')
+            case 'efiltermapd', ast.Lambda, _:
+                moon.node.keywords = []
+            case _:
+                raise NotImplementedError(f'{moon.fname}')
