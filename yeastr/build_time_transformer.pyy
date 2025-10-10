@@ -104,12 +104,7 @@ def backporters():
 @def_macro()
 def additionally():
     # - Maybe inject variables
-    for varname in backported_fstring:
-        add_at_the_module_beginning(self.ast, ast.Assign(
-            targets=[ast.Name(varname, context=ast.Store())],
-            value=ast.Constant(chr(int(varname[len('_bfb_'):-2], 16))),
-            lineno=1,
-        ))
+    backport_fstring_backslash_inject(self.ast)
     # - Finally add the configured yeastr runtime import
     if self.autoimport:
         add_at_the_module_beginning(self.ast, ast.Try(

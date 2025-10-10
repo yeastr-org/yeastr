@@ -50,24 +50,65 @@ def with_call2comp(debug=False):
 
 from sys import version_info, stderr
 
+"""
+Proposal: Macro with_block=True
+you call the macro inside a with,
+and the macro yields the with block
+
+@def_macro(with_block=True)
+def backport_decorator(yr_version_required):
+    if version_info >= version_required:
+        def _backporter(fn):
+            prepare_source()
+            yield _y_block
+        return _backporter
+    print('You need a newer python to backport', file=stderr)
+    return lambda _fn: lambda *a, **kw: None
+
 def backport_fstring_backslash(debug=False):
-    def _backport_fstring_backslash(fn):
-        prepare_source()
+    with backport_decorator((3, 12)):
+        backported_fstring = set()
         backport_fstring_backslash_impl(_fn)
+        backport_fstring_backslash_inject(_fn)
         and_so_on()
-    return _backport_fstring_backslash
+
+def backport_match(debug=False, custom_globals={}):
+    with backport_decorator((3, 10)):
+        backport_match_impl(_fn)
+        and_so_on(custom_globals=True)
+
+def backport_dict_ops(debug=False):
+    with backport_decorator((3, 9)):
+        backport_dict_ops_impl(_fn)
+        and_so_on()
+"""
+
+def backport_fstring_backslash(debug=False):
+    if version_info >= (3, 12):
+        def _backport_fstring_backslash(fn):
+            prepare_source()
+            backported_fstring = set()
+            backport_fstring_backslash_impl(_fn)
+            backport_fstring_backslash_inject(_fn)
+            and_so_on()
+        return _backport_fstring_backslash
+    print('You need a newer python to backport', file=stderr)
+    return lambda _fn: lambda *a, **kw: None
 
 
 def backport_match(debug=False, custom_globals={}):
-    def _backport_match(fn):
-        prepare_source()
-        backport_match_impl(_fn)
-        and_so_on(custom_globals=True)
-    return _backport_match
+    if version_info >= (3, 10):
+        def _backport_match(fn):
+            prepare_source()
+            backport_match_impl(_fn)
+            and_so_on(custom_globals=True)
+        return _backport_match
+    print('You need a newer python to backport', file=stderr)
+    return lambda _fn: lambda *a, **kw: None
 
 
 def backport_dict_ops(debug=False):
-    if version_info > (3, 9):
+    if version_info >= (3, 9):
         def _backport_dict_ops(fn):
             prepare_source()
             backport_dict_ops_impl(_fn)

@@ -1352,7 +1352,7 @@ class BuildTimeTransformer:
                         breakpoint()
             del grab
         yloopsf = 0
-        for varname in backported_fstring:
+        for varname in sorted(backported_fstring):
             add_at_the_module_beginning(self.ast, ast.Assign(targets=[ast.Name(varname, context=ast.Store())], value=ast.Constant(chr(int(varname[len('_bfb_'):-2], 16))), lineno=1))
         if self.autoimport:
             add_at_the_module_beginning(self.ast, ast.Try(body=[ast.ImportFrom(module=f'yeastr.{self.autoimport}', names=[ast.alias(name='*')], level=0)], handlers=[ast.ExceptHandler(type=ast.Name('ImportError'), body=[ast.ImportFrom(module=self.autoimport, names=[ast.alias(name='*')], level=0.0)])], orelse=[], finalbody=[]))

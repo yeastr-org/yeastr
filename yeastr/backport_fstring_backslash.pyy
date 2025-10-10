@@ -2,6 +2,16 @@
 # Supported: \xXX \uXXXX and \UXXXXXXXX (and octals too so... \033 or \x1b)
 # Supported: \N{snake} too
 
+@def_macro
+def backport_fstring_backslash_inject(yr_ast_tree):
+    for varname in sorted(backported_fstring):
+        add_at_the_module_beginning(ast_tree, ast.Assign(
+            targets=[ast.Name(varname, context=ast.Store())],
+            value=ast.Constant(chr(int(varname[len('_bfb_'):-2], 16))),
+            lineno=1,
+        ))
+
+
 @def_macro()
 def backport_fstring_backslash_impl(yr_ast_tree):
     _x_escapes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
@@ -10,7 +20,6 @@ def backport_fstring_backslash_impl(yr_ast_tree):
         144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157,
         158, 159, 160, 173, *range(177, 256)
     ]
-    # \U0001F606
     with MoonGrabber() as grab:
         def moon_filter(moon):
             if (

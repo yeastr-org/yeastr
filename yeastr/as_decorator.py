@@ -1045,227 +1045,238 @@ def with_call2comp(debug=False):
         return _ywrapped
     return _with_call2comp
 from sys import version_info, stderr
+"\nProposal: Macro with_block=True\nyou call the macro inside a with,\nand the macro yields the with block\n\n@def_macro(with_block=True)\ndef backport_decorator(yr_version_required):\n    if version_info >= version_required:\n        def _backporter(fn):\n            prepare_source()\n            yield _y_block\n        return _backporter\n    print('You need a newer python to backport', file=stderr)\n    return lambda _fn: lambda *a, **kw: None\n\ndef backport_fstring_backslash(debug=False):\n    with backport_decorator((3, 12)):\n        backported_fstring = set()\n        backport_fstring_backslash_impl(_fn)\n        backport_fstring_backslash_inject(_fn)\n        and_so_on()\n\ndef backport_match(debug=False, custom_globals={}):\n    with backport_decorator((3, 10)):\n        backport_match_impl(_fn)\n        and_so_on(custom_globals=True)\n\ndef backport_dict_ops(debug=False):\n    with backport_decorator((3, 9)):\n        backport_dict_ops_impl(_fn)\n        and_so_on()\n"
 
 def backport_fstring_backslash(debug=False):
+    if version_info >= (3, 12):
 
-    def _backport_fstring_backslash(fn):
-        if hasattr(fn, '_source'):
-            source = fn._source
-        else:
-            _source = getsource(fn)
-            indent = len(re.compile('^(\\s*)\\S*').match(_source).group(1))
-            source = ''
-            multiline_string = False
-            yloopsf = 0
-            for line in _source.splitlines():
-                if multiline_string is False:
-                    line = line[indent:]
-                    if len((matches := re.compile('("""|\'\'\')').findall(line))) == 1:
-                        multiline_string = matches[0]
-                elif len(re.compile(multiline_string).findall(line)) == 1:
-                    multiline_string = False
-                if not source and line.startswith('@'):
-                    continue
-                source += line + '\n'
-            del _source
-        _fn = ast.parse(source)
-        del source
-        _x_escapes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 173, *range(177, 256)]
-        with MoonGrabber() as grab:
-
-            def moon_filter(moon):
-                if moon.node.__class__ == ast.Constant and isinstance(moon.node.value, str):
-                    if moon.upper(ast.JoinedStr):
-                        moon.x_escaped = []
-                        moon.u_escaped = []
-                        yloopsf = 0
-                        for (_yfor_charloop_i, _yfor_charloop_it) in enumerate(moon.node.value):
-                            ch = _yfor_charloop_it
-                            if ord(ch) in _x_escapes:
-                                moon.x_escaped.append(_yfor_charloop_i)
-                            elif ord(ch) > 255:
-                                moon.u_escaped.append(_yfor_charloop_i)
-                        if moon.x_escaped or moon.u_escaped:
-                            return moon
-            yloopsf = 0
-            for moon in MoonWalking(_fn, filter_cb=moon_filter).tree:
-                inner_fstring = ast.JoinedStr(values=(inner_values := []))
-                buffer = ''
-                new_names = set()
+        def _backport_fstring_backslash(fn):
+            if hasattr(fn, '_source'):
+                source = fn._source
+            else:
+                _source = getsource(fn)
+                indent = len(re.compile('^(\\s*)\\S*').match(_source).group(1))
+                source = ''
+                multiline_string = False
                 yloopsf = 0
-                for (_yfor_charloop_i, _yfor_charloop_it) in enumerate(moon.node.value):
-                    ch = _yfor_charloop_it
-                    if (nx := (_yfor_charloop_i not in moon.x_escaped)) and _yfor_charloop_i not in moon.u_escaped:
-                        buffer += _yfor_charloop_it
-                    elif nx:
-                        inner_values.extend([ast.Constant(buffer), ast.FormattedValue(value=ast.Name((new_name := f'_bfb_{ord(ch):08x}__')), conversion=-1)])
-                        new_names.add(new_name)
-                        buffer = ''
-                    else:
-                        inner_values.extend([ast.Constant(buffer), ast.FormattedValue(value=ast.Name((new_name := f'_bfb_{ord(ch):02x}__')), conversion=-1)])
-                        new_names.add(new_name)
-                        buffer = ''
-                if yloopsf:
-                    break
-                if buffer:
-                    inner_values.append(ast.Constant(buffer))
-                moon.replace(inner_fstring)
-                backported_fstring |= new_names
-        _source = ast.unparse(_fn)
-        file_name_ = '_.py'
-        if debug:
-            makedirs((debug_dir := f'/tmp/yeastr-debug/{getpid()}/'), exist_ok=True)
-            file_name_ = f'{debug_dir}{random_string(6)}.py'
-            with open(file_name_, 'w') as f:
-                f.write(_source)
-        _globals = globals().copy()
-        exec(compile(_source, file_name_, 'exec'), _globals)
+                for line in _source.splitlines():
+                    if multiline_string is False:
+                        line = line[indent:]
+                        if len((matches := re.compile('("""|\'\'\')').findall(line))) == 1:
+                            multiline_string = matches[0]
+                    elif len(re.compile(multiline_string).findall(line)) == 1:
+                        multiline_string = False
+                    if not source and line.startswith('@'):
+                        continue
+                    source += line + '\n'
+                del _source
+            _fn = ast.parse(source)
+            del source
+            backported_fstring = set()
+            _x_escapes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 173, *range(177, 256)]
+            with MoonGrabber() as grab:
 
-        @wraps(fn)
-        def _ywrapped(*a, **kw):
-            return _globals[fn.__name__](*a, **kw)
-        _ywrapped._source = _source
-        return _ywrapped
-    return _backport_fstring_backslash
+                def moon_filter(moon):
+                    if moon.node.__class__ == ast.Constant and isinstance(moon.node.value, str):
+                        if moon.upper(ast.JoinedStr):
+                            moon.x_escaped = []
+                            moon.u_escaped = []
+                            yloopsf = 0
+                            for (_yfor_charloop_i, _yfor_charloop_it) in enumerate(moon.node.value):
+                                ch = _yfor_charloop_it
+                                if ord(ch) in _x_escapes:
+                                    moon.x_escaped.append(_yfor_charloop_i)
+                                elif ord(ch) > 255:
+                                    moon.u_escaped.append(_yfor_charloop_i)
+                            if moon.x_escaped or moon.u_escaped:
+                                return moon
+                yloopsf = 0
+                for moon in MoonWalking(_fn, filter_cb=moon_filter).tree:
+                    inner_fstring = ast.JoinedStr(values=(inner_values := []))
+                    buffer = ''
+                    new_names = set()
+                    yloopsf = 0
+                    for (_yfor_charloop_i, _yfor_charloop_it) in enumerate(moon.node.value):
+                        ch = _yfor_charloop_it
+                        if (nx := (_yfor_charloop_i not in moon.x_escaped)) and _yfor_charloop_i not in moon.u_escaped:
+                            buffer += _yfor_charloop_it
+                        elif nx:
+                            inner_values.extend([ast.Constant(buffer), ast.FormattedValue(value=ast.Name((new_name := f'_bfb_{ord(ch):08x}__')), conversion=-1)])
+                            new_names.add(new_name)
+                            buffer = ''
+                        else:
+                            inner_values.extend([ast.Constant(buffer), ast.FormattedValue(value=ast.Name((new_name := f'_bfb_{ord(ch):02x}__')), conversion=-1)])
+                            new_names.add(new_name)
+                            buffer = ''
+                    if yloopsf:
+                        break
+                    if buffer:
+                        inner_values.append(ast.Constant(buffer))
+                    moon.replace(inner_fstring)
+                    backported_fstring |= new_names
+            yloopsf = 0
+            for varname in sorted(backported_fstring):
+                add_at_the_module_beginning(_fn, ast.Assign(targets=[ast.Name(varname, context=ast.Store())], value=ast.Constant(chr(int(varname[len('_bfb_'):-2], 16))), lineno=1))
+            _source = ast.unparse(_fn)
+            file_name_ = '_.py'
+            if debug:
+                makedirs((debug_dir := f'/tmp/yeastr-debug/{getpid()}/'), exist_ok=True)
+                file_name_ = f'{debug_dir}{random_string(6)}.py'
+                with open(file_name_, 'w') as f:
+                    f.write(_source)
+            _globals = globals().copy()
+            exec(compile(_source, file_name_, 'exec'), _globals)
+
+            @wraps(fn)
+            def _ywrapped(*a, **kw):
+                return _globals[fn.__name__](*a, **kw)
+            _ywrapped._source = _source
+            return _ywrapped
+        return _backport_fstring_backslash
+    print('You need a newer python to backport', file=stderr)
+    return lambda _fn: lambda *a, **kw: None
 
 def backport_match(debug=False, custom_globals={}):
+    if version_info >= (3, 10):
 
-    def _backport_match(fn):
-        if hasattr(fn, '_source'):
-            source = fn._source
-        else:
-            _source = getsource(fn)
-            indent = len(re.compile('^(\\s*)\\S*').match(_source).group(1))
-            source = ''
-            multiline_string = False
-            yloopsf = 0
-            for line in _source.splitlines():
-                if multiline_string is False:
-                    line = line[indent:]
-                    if len((matches := re.compile('("""|\'\'\')').findall(line))) == 1:
-                        multiline_string = matches[0]
-                elif len(re.compile(multiline_string).findall(line)) == 1:
-                    multiline_string = False
-                if not source and line.startswith('@'):
-                    continue
-                source += line + '\n'
-            del _source
-        _fn = ast.parse(source)
-        del source
-
-        def backport_MatchValue_to_expr(subj, match_value):
-            return ast.Compare(left=subj, ops=[ast.Eq()], comparators=[match_value.value])
-
-        def backport_MatchSingleton_to_expr(subj, match_singleton):
-            return ast.Compare(left=ast.Constant(match_singleton.value), ops=[ast.Is()], comparators=[subj])
-
-        def backport_MatchAs_to_expr(subj, match_as):
-            if match_as.pattern:
-                assert match_as.name
-                return ast.BoolOp(op=ast.And(), values=[backport_dispatch_match(subj, match_as.pattern), ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(match_as.name), value=subj), ast.Constant(True)])])
-            if (patname := match_as.name):
-                return ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(patname), value=subj), ast.Constant(True)])
+        def _backport_match(fn):
+            if hasattr(fn, '_source'):
+                source = fn._source
             else:
-                return ast.Constant(True)
+                _source = getsource(fn)
+                indent = len(re.compile('^(\\s*)\\S*').match(_source).group(1))
+                source = ''
+                multiline_string = False
+                yloopsf = 0
+                for line in _source.splitlines():
+                    if multiline_string is False:
+                        line = line[indent:]
+                        if len((matches := re.compile('("""|\'\'\')').findall(line))) == 1:
+                            multiline_string = matches[0]
+                    elif len(re.compile(multiline_string).findall(line)) == 1:
+                        multiline_string = False
+                    if not source and line.startswith('@'):
+                        continue
+                    source += line + '\n'
+                del _source
+            _fn = ast.parse(source)
+            del source
 
-        def backport_MatchOr_to_expr(subj, match_or):
-            return ast.BoolOp(op=ast.Or(), values=[backport_dispatch_match(subj, pat) for pat in match_or.patterns])
+            def backport_MatchValue_to_expr(subj, match_value):
+                return ast.Compare(left=subj, ops=[ast.Eq()], comparators=[match_value.value])
 
-        def backport_MatchSequence_to_expr(subj, match_seq):
-            seq_check = ast.Call(func=ast.Name('ymatch_as_seq'), args=[subj], keywords=[])
-            seq_len_check = ast.Compare(left=ast.Constant(len([True for pat in match_case.pattern.patterns if not isinstance(pat, ast.MatchStar)])), ops=[ast.Lt()], comparators=[ast.Call(func=ast.Name('len'), args=[subj], keywords=[])]) if any((isinstance(pat, ast.MatchStar) for pat in match_seq.patterns)) else ast.Compare(left=ast.Constant(len(match_seq.patterns)), ops=[ast.Eq()], comparators=[ast.Call(func=ast.Name('len'), args=[subj], keywords=[])])
-            exprs = []
-            star = False
-            yloopsf = 0
-            for (idx, subpattern) in enumerate(match_seq.patterns):
-                subsubj = ast.Subscript(value=subj, slice=ast.Constant(idx) if not star else ast.UnaryOp(op=ast.USub(), operand=ast.Constant(len(match_seq.patterns) - idx)))
-                if isinstance(subpattern, ast.MatchStar):
-                    star = idx
-                    exprs.append(backport_MatchStar_to_expr(subj, subpattern, len(match_seq.patterns), idx))
+            def backport_MatchSingleton_to_expr(subj, match_singleton):
+                return ast.Compare(left=ast.Constant(match_singleton.value), ops=[ast.Is()], comparators=[subj])
+
+            def backport_MatchAs_to_expr(subj, match_as):
+                if match_as.pattern:
+                    assert match_as.name
+                    return ast.BoolOp(op=ast.And(), values=[backport_dispatch_match(subj, match_as.pattern), ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(match_as.name), value=subj), ast.Constant(True)])])
+                if (patname := match_as.name):
+                    return ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(patname), value=subj), ast.Constant(True)])
                 else:
-                    exprs.append(backport_dispatch_match(subsubj, subpattern))
-            return ast.BoolOp(op=ast.And(), values=[seq_check, seq_len_check, *exprs])
+                    return ast.Constant(True)
 
-        def backport_MatchStar_to_expr(subj, match_star, len_, pos):
-            return ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(match_star.name if match_star.name else '_'), value=ast.Subscript(value=subj, slice=ast.Slice(lower=ast.Constant(pos), upper=ast.BinOp(left=ast.Call(func=ast.Name('len'), args=[subj], keywords=[]), op=ast.Sub(), right=ast.Constant(len_ - pos - 1))))), ast.Constant(True)])
+            def backport_MatchOr_to_expr(subj, match_or):
+                return ast.BoolOp(op=ast.Or(), values=[backport_dispatch_match(subj, pat) for pat in match_or.patterns])
 
-        def backport_MatchClass_to_expr(subj, match_class):
-            positional_matchers = []
+            def backport_MatchSequence_to_expr(subj, match_seq):
+                seq_check = ast.Call(func=ast.Name('ymatch_as_seq'), args=[subj], keywords=[])
+                seq_len_check = ast.Compare(left=ast.Constant(len([True for pat in match_case.pattern.patterns if not isinstance(pat, ast.MatchStar)])), ops=[ast.Lt()], comparators=[ast.Call(func=ast.Name('len'), args=[subj], keywords=[])]) if any((isinstance(pat, ast.MatchStar) for pat in match_seq.patterns)) else ast.Compare(left=ast.Constant(len(match_seq.patterns)), ops=[ast.Eq()], comparators=[ast.Call(func=ast.Name('len'), args=[subj], keywords=[])])
+                exprs = []
+                star = False
+                yloopsf = 0
+                for (idx, subpattern) in enumerate(match_seq.patterns):
+                    subsubj = ast.Subscript(value=subj, slice=ast.Constant(idx) if not star else ast.UnaryOp(op=ast.USub(), operand=ast.Constant(len(match_seq.patterns) - idx)))
+                    if isinstance(subpattern, ast.MatchStar):
+                        star = idx
+                        exprs.append(backport_MatchStar_to_expr(subj, subpattern, len(match_seq.patterns), idx))
+                    else:
+                        exprs.append(backport_dispatch_match(subsubj, subpattern))
+                return ast.BoolOp(op=ast.And(), values=[seq_check, seq_len_check, *exprs])
+
+            def backport_MatchStar_to_expr(subj, match_star, len_, pos):
+                return ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(match_star.name if match_star.name else '_'), value=ast.Subscript(value=subj, slice=ast.Slice(lower=ast.Constant(pos), upper=ast.BinOp(left=ast.Call(func=ast.Name('len'), args=[subj], keywords=[]), op=ast.Sub(), right=ast.Constant(len_ - pos - 1))))), ast.Constant(True)])
+
+            def backport_MatchClass_to_expr(subj, match_class):
+                positional_matchers = []
+                yloopsf = 0
+                for (pati, pat_) in enumerate(match_class.patterns):
+                    patsubj = ast.Call(func=ast.Name('getattr'), args=[subj, ast.Subscript(value=ast.Call(func=ast.Name('ymatch_positional_origin'), args=[subj]), slice=ast.Constant(pati))], keywords=[])
+                    positional_matchers.append(backport_dispatch_match(patsubj, pat_))
+                explicit_matchers = []
+                yloopsf = 0
+                for (kwi, kwd) in enumerate(match_class.kwd_attrs):
+                    kwdsubj = ast.Attribute(value=subj, attr=kwd)
+                    pexpr = ast.BoolOp(op=ast.And(), values=[ast.Call(func=ast.Name('hasattr'), args=[subj, ast.Constant(kwd)], keywords=[]), ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(kwd), value=kwdsubj), ast.Constant(True)])])
+                    kwdpat = match_class.kwd_patterns[kwi]
+                    pexpr.values.append(backport_dispatch_match(kwdsubj, kwdpat))
+                    explicit_matchers.append(pexpr)
+                return ast.BoolOp(op=ast.And(), values=[ast.Call(func=ast.Name('isinstance'), args=[subj, match_class.cls], keywords=[]), *positional_matchers, *explicit_matchers])
+
+            def backport_MatchMapping_to_expr(subj, match_mapping):
+                matchers = []
+                yloopsf = 0
+                for (key, pat) in zip(match_mapping.keys, match_mapping.patterns):
+                    matchers.append(ast.Compare(left=key, ops=[ast.In()], comparators=[subj]))
+                    get_ = ast.Attribute(value=subj, attr='get')
+                    patsubj = ast.Call(func=get_, args=[key], keywords=[])
+                    matchers.append(backport_dispatch_match(patsubj, pat))
+                    if match_mapping.rest:
+                        matchers.append(ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(match_mapping.rest), value=ast.DictComp(key=ast.Name('k'), value=ast.Name('v'), generators=[ast.comprehension(target=ast.Tuple(elts=[ast.Name('k'), ast.Name('v')]), iter=ast.Call(func=ast.Attribute(value=subj, attr='items'), args=[], keywords=[]), ifs=[ast.Compare(left=ast.Name('k'), ops=[ast.NotIn()], comparators=[ast.Tuple(elts=match_mapping.keys)])], is_async=0)])), ast.Constant(value=True)]))
+                return ast.BoolOp(op=ast.And(), values=[ast.Call(func=ast.Name('ymatch_as_map'), args=[subj], keywords=[]), *matchers])
+
+            def backport_MatchCase_to_if(subj, match_case):
+                expr = backport_dispatch_match(subj, match_case.pattern)
+                return ast.If(test=ast.BoolOp(op=ast.And(), values=[expr, match_case.guard]) if match_case.guard else expr, body=match_case.body, orelse=[])
+
+            def backport_dispatch_match(subj, pat):
+                return {ast.MatchAs: backport_MatchAs_to_expr, ast.MatchSingleton: backport_MatchSingleton_to_expr, ast.MatchValue: backport_MatchValue_to_expr, ast.MatchOr: backport_MatchOr_to_expr, ast.MatchSequence: backport_MatchSequence_to_expr, ast.MatchClass: backport_MatchClass_to_expr, ast.MatchMapping: backport_MatchMapping_to_expr}[type(pat)](subj, pat)
+            match_counter = 0
+
+            def moon_filter(moon):
+                if isinstance(moon._node, ast.Match):
+                    moon.up
+                    return moon
             yloopsf = 0
-            for (pati, pat_) in enumerate(match_class.patterns):
-                patsubj = ast.Call(func=ast.Name('getattr'), args=[subj, ast.Subscript(value=ast.Call(func=ast.Name('ymatch_positional_origin'), args=[subj]), slice=ast.Constant(pati))], keywords=[])
-                positional_matchers.append(backport_dispatch_match(patsubj, pat_))
-            explicit_matchers = []
-            yloopsf = 0
-            for (kwi, kwd) in enumerate(match_class.kwd_attrs):
-                kwdsubj = ast.Attribute(value=subj, attr=kwd)
-                pexpr = ast.BoolOp(op=ast.And(), values=[ast.Call(func=ast.Name('hasattr'), args=[subj, ast.Constant(kwd)], keywords=[]), ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(kwd), value=kwdsubj), ast.Constant(True)])])
-                kwdpat = match_class.kwd_patterns[kwi]
-                pexpr.values.append(backport_dispatch_match(kwdsubj, kwdpat))
-                explicit_matchers.append(pexpr)
-            return ast.BoolOp(op=ast.And(), values=[ast.Call(func=ast.Name('isinstance'), args=[subj, match_class.cls], keywords=[]), *positional_matchers, *explicit_matchers])
+            for moon in MoonWalking(_fn, filter_cb=moon_filter).tree:
+                match_subject = moon.node.subject
+                new_body = [ast.Assign(targets=[(subj := ast.Name('ymatch_%d_subject' % match_counter))], value=match_subject, lineno=1)]
+                new_body.append(backport_MatchCase_to_if(subj, moon.node.cases[0]))
+                orelse = new_body[-1].orelse
+                yloopsf = 0
+                for match_case in moon.node.cases[1:]:
+                    orelse.append((last_if := backport_MatchCase_to_if(subj, match_case)))
+                    orelse = last_if.orelse
+                if yloopsf:
+                    break
+                moon.pop_extend(new_body)
+                match_counter += 1
+            _source = ast.unparse(_fn)
+            file_name_ = '_.py'
+            if debug:
+                makedirs((debug_dir := f'/tmp/yeastr-debug/{getpid()}/'), exist_ok=True)
+                file_name_ = f'{debug_dir}{random_string(6)}.py'
+                with open(file_name_, 'w') as f:
+                    f.write(_source)
+            _globals = globals().copy()
+            if isinstance(custom_globals, dict):
+                _globals.update(custom_globals)
+            else:
+                _globals.update(custom_globals())
+            exec(compile(_source, file_name_, 'exec'), _globals)
 
-        def backport_MatchMapping_to_expr(subj, match_mapping):
-            matchers = []
-            yloopsf = 0
-            for (key, pat) in zip(match_mapping.keys, match_mapping.patterns):
-                matchers.append(ast.Compare(left=key, ops=[ast.In()], comparators=[subj]))
-                get_ = ast.Attribute(value=subj, attr='get')
-                patsubj = ast.Call(func=get_, args=[key], keywords=[])
-                matchers.append(backport_dispatch_match(patsubj, pat))
-                if match_mapping.rest:
-                    matchers.append(ast.BoolOp(op=ast.Or(), values=[ast.NamedExpr(target=ast.Name(match_mapping.rest), value=ast.DictComp(key=ast.Name('k'), value=ast.Name('v'), generators=[ast.comprehension(target=ast.Tuple(elts=[ast.Name('k'), ast.Name('v')]), iter=ast.Call(func=ast.Attribute(value=subj, attr='items'), args=[], keywords=[]), ifs=[ast.Compare(left=ast.Name('k'), ops=[ast.NotIn()], comparators=[ast.Tuple(elts=match_mapping.keys)])], is_async=0)])), ast.Constant(value=True)]))
-            return ast.BoolOp(op=ast.And(), values=[ast.Call(func=ast.Name('ymatch_as_map'), args=[subj], keywords=[]), *matchers])
-
-        def backport_MatchCase_to_if(subj, match_case):
-            expr = backport_dispatch_match(subj, match_case.pattern)
-            return ast.If(test=ast.BoolOp(op=ast.And(), values=[expr, match_case.guard]) if match_case.guard else expr, body=match_case.body, orelse=[])
-
-        def backport_dispatch_match(subj, pat):
-            return {ast.MatchAs: backport_MatchAs_to_expr, ast.MatchSingleton: backport_MatchSingleton_to_expr, ast.MatchValue: backport_MatchValue_to_expr, ast.MatchOr: backport_MatchOr_to_expr, ast.MatchSequence: backport_MatchSequence_to_expr, ast.MatchClass: backport_MatchClass_to_expr, ast.MatchMapping: backport_MatchMapping_to_expr}[type(pat)](subj, pat)
-        match_counter = 0
-
-        def moon_filter(moon):
-            if isinstance(moon._node, ast.Match):
-                moon.up
-                return moon
-        yloopsf = 0
-        for moon in MoonWalking(_fn, filter_cb=moon_filter).tree:
-            match_subject = moon.node.subject
-            new_body = [ast.Assign(targets=[(subj := ast.Name('ymatch_%d_subject' % match_counter))], value=match_subject, lineno=1)]
-            new_body.append(backport_MatchCase_to_if(subj, moon.node.cases[0]))
-            orelse = new_body[-1].orelse
-            yloopsf = 0
-            for match_case in moon.node.cases[1:]:
-                orelse.append((last_if := backport_MatchCase_to_if(subj, match_case)))
-                orelse = last_if.orelse
-            if yloopsf:
-                break
-            moon.pop_extend(new_body)
-            match_counter += 1
-        _source = ast.unparse(_fn)
-        file_name_ = '_.py'
-        if debug:
-            makedirs((debug_dir := f'/tmp/yeastr-debug/{getpid()}/'), exist_ok=True)
-            file_name_ = f'{debug_dir}{random_string(6)}.py'
-            with open(file_name_, 'w') as f:
-                f.write(_source)
-        _globals = globals().copy()
-        if isinstance(custom_globals, dict):
-            _globals.update(custom_globals)
-        else:
-            _globals.update(custom_globals())
-        exec(compile(_source, file_name_, 'exec'), _globals)
-
-        @wraps(fn)
-        def _ywrapped(*a, **kw):
-            return _globals[fn.__name__](*a, **kw)
-        _ywrapped._source = _source
-        return _ywrapped
-    return _backport_match
+            @wraps(fn)
+            def _ywrapped(*a, **kw):
+                return _globals[fn.__name__](*a, **kw)
+            _ywrapped._source = _source
+            return _ywrapped
+        return _backport_match
+    print('You need a newer python to backport', file=stderr)
+    return lambda _fn: lambda *a, **kw: None
 
 def backport_dict_ops(debug=False):
-    if version_info > (3, 9):
+    if version_info >= (3, 9):
 
         def _backport_dict_ops(fn):
             if hasattr(fn, '_source'):

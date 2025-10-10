@@ -1,6 +1,6 @@
-_bfb_0001f40d__ = '🐍'
-_bfb_0a__ = '\n'
 _bfb_1b__ = '\x1b'
+_bfb_0a__ = '\n'
+_bfb_0001f40d__ = '🐍'
 
 def fn():
     ymacro_str_ = 'abcdef'
