@@ -9,7 +9,7 @@ LAYOUT_SRC=/tmp/yeastr-test-proj
 LAYOUT_SCRIPT=/tmp/yeastr-test-script
 STORE_DIR=$CUR_DIR/../yeastr-test-proj/localci
 #PY313=/root/wip/wip/Python-3.13.7/python
-PY314=/root/wip/wip/Python-3.14.0rc3/python
+PY314=/tmp/Python-3.14.0rc3/python
 # STORE_DIR abuses yeastr-test-proj, but contains all the layouts results
 mkdir -p $STORE_DIR/out
 
@@ -85,7 +85,7 @@ case $1 in
         set -x
         pip install $CUR_DIR/dist/yeastr-0.0.1-py314-none-any.whl --force-reinstall
         python -m yeastr.packaging_test > ./out/yeastr_test_packaging_py314
-        diff ./out/yeastr_test_packaging_py314 $STORE_DIR/out/yeastr_test_packaging
+        diff $STORE_DIR/out/yeastr_test_packaging ./out/yeastr_test_packaging_py314  # this one aborts the tests
         pip install $LAYOUT_SRC/dist/yeastr_test-0.0.1-py314-none-any.whl --force-reinstall --no-deps
         pip list
         echo 'Launch some examples'

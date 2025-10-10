@@ -295,9 +295,7 @@ def efiltermapd(_fil, _map, _iter):
     return dict(*map(lambda args: _map(*args), filter(lambda args: _fil(*args), _iter)))
 
 # Amalgamating from yeastr/as_decorators.pyy
-_bfb_bs__ = '\\'
-_bfb_cr__ = '\r'
-_bfb_nl__ = '\n'
+_bfb_0a__ = '\n'
 try:
     from bootstrapped import *
 except ImportError:
@@ -722,7 +720,7 @@ def with_namedloops(debug=False):
                             else:
                                 raise TransformError(f"don't know about {_end}")
                         elif True:
-                            raise TransformError(f'what is {k}={v}?{_bfb_nl__}{ast.unparse(moon.node)}')
+                            raise TransformError(f'what is {k}={v}?{_bfb_0a__}{ast.unparse(moon.node)}')
                     grab(moon.up)
                     moon._loop_depth = 0
                     up = moon._up
@@ -986,7 +984,7 @@ def with_call2comp(debug=False):
                     raise TransformError(f'{moon.fname}: lambda body not 2-tuple')
                 moon.replace(ast.DictComp(key=t.elts[0], value=t.elts[1], generators=[ast.comprehension(target=ast.Tuple([ast.Name(_arg.arg) for _arg in moon.arg0.args.args]), iter=moon.arg1, is_async=False, ifs=[])]))
             elif (ymatch_as_seq(ymatch_1_subject) and 3 == len(ymatch_1_subject) and (ymatch_1_subject[0] == 'emapd') and True and True) and moon.performance_required:
-                raise TransformError(f'{moon.fname}: arg 1 should be lambda: 2-tuple{_bfb_nl__}try with performance_required=False{_bfb_nl__}{ast.unparse(moon.node)}')
+                raise TransformError(f'{moon.fname}: arg 1 should be lambda: 2-tuple{_bfb_0a__}try with performance_required=False{_bfb_0a__}{ast.unparse(moon.node)}')
             elif ymatch_as_seq(ymatch_1_subject) and 3 == len(ymatch_1_subject) and (ymatch_1_subject[0] == 'emapd') and True and True:
                 moon.node.keywords = []
             elif ymatch_as_seq(ymatch_1_subject) and 3 == len(ymatch_1_subject) and (ymatch_1_subject[0] == 'efilter' or ymatch_1_subject[0] == 'efilters') and (ymatch_1_subject[1] == ast.Lambda) and True:
@@ -1025,7 +1023,7 @@ def with_call2comp(debug=False):
                 _args = [ast.Name(_a.arg) for _a in moon.arg1.args.args]
                 moon.replace(ast.DictComp(key=moon.arg1.body.elts[0], value=moon.arg1.body.elts[1], generators=[ast.comprehension(target=ast.Tuple(elts=_args), iter=moon.arg2, is_async=False, ifs=[ast.Call(func=moon.arg0, keywords=[], args=_args)])]))
             elif (ymatch_as_seq(ymatch_1_subject) and 3 == len(ymatch_1_subject) and (ymatch_1_subject[0] == 'efiltermapd') and (ymatch_1_subject[1] == ast.Lambda) and True) and moon.performance_required:
-                raise TransformError(f'{moon.fname}: arg 1 should be lambda: 2-tuple{_bfb_nl__}try with performance_required=False{_bfb_nl__}{ast.unparse(moon.node)}')
+                raise TransformError(f'{moon.fname}: arg 1 should be lambda: 2-tuple{_bfb_0a__}try with performance_required=False{_bfb_0a__}{ast.unparse(moon.node)}')
             elif ymatch_as_seq(ymatch_1_subject) and 3 == len(ymatch_1_subject) and (ymatch_1_subject[0] == 'efiltermapd') and (ymatch_1_subject[1] == ast.Lambda) and True:
                 moon.node.keywords = []
             elif True:
@@ -1072,23 +1070,47 @@ def backport_fstring_backslash(debug=False):
             del _source
         _fn = ast.parse(source)
         del source
-        _yre_backport_fstring = re.compile('([\\n\\r\\\\])')
-        _ymap_backport_fstring = {'\n': '_bfb_nl__', '\r': '_bfb_cr__', '\\': '_bfb_bs__'}
+        _x_escapes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 173, *range(177, 256)]
         with MoonGrabber() as grab:
 
             def moon_filter(moon):
-                if moon._node.__class__ == ast.JoinedStr:
-                    grab(moon._up)
-                if moon._node.__class__ == ast.Constant and isinstance(moon._node.value, str):
-                    if (upper := moon.upper(ast.JoinedStr)):
-                        moon.splitted = _yre_backport_fstring.split(moon._node.value)
-                        if len(moon.splitted) > 1:
-                            moon.up
+                if moon.node.__class__ == ast.Constant and isinstance(moon.node.value, str):
+                    if moon.upper(ast.JoinedStr):
+                        moon.x_escaped = []
+                        moon.u_escaped = []
+                        yloopsf = 0
+                        for (_yfor_charloop_i, _yfor_charloop_it) in enumerate(moon.node.value):
+                            ch = _yfor_charloop_it
+                            if ord(ch) in _x_escapes:
+                                moon.x_escaped.append(_yfor_charloop_i)
+                            elif ord(ch) > 255:
+                                moon.u_escaped.append(_yfor_charloop_i)
+                        if moon.x_escaped or moon.u_escaped:
                             return moon
             yloopsf = 0
             for moon in MoonWalking(_fn, filter_cb=moon_filter).tree:
-                moon.replace(ast.JoinedStr((ast.FormattedValue(value=ast.Name(varname), conversion=-1) if (varname := _ymap_backport_fstring.get(v)) else ast.Constant(v) for v in moon.splitted)))
-                backported_fstring = True
+                inner_fstring = ast.JoinedStr(values=(inner_values := []))
+                buffer = ''
+                new_names = set()
+                yloopsf = 0
+                for (_yfor_charloop_i, _yfor_charloop_it) in enumerate(moon.node.value):
+                    ch = _yfor_charloop_it
+                    if (nx := (_yfor_charloop_i not in moon.x_escaped)) and _yfor_charloop_i not in moon.u_escaped:
+                        buffer += _yfor_charloop_it
+                    elif nx:
+                        inner_values.extend([ast.Constant(buffer), ast.FormattedValue(value=ast.Name((new_name := f'_bfb_{ord(ch):08x}__')), conversion=-1)])
+                        new_names.add(new_name)
+                        buffer = ''
+                    else:
+                        inner_values.extend([ast.Constant(buffer), ast.FormattedValue(value=ast.Name((new_name := f'_bfb_{ord(ch):02x}__')), conversion=-1)])
+                        new_names.add(new_name)
+                        buffer = ''
+                if yloopsf:
+                    break
+                if buffer:
+                    inner_values.append(ast.Constant(buffer))
+                moon.replace(inner_fstring)
+                backported_fstring |= new_names
         _source = ast.unparse(_fn)
         file_name_ = '_.py'
         if debug:

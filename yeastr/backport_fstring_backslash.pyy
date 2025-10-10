@@ -1,44 +1,60 @@
-# currently kinda private: unfinished,
-# covers just a few usage cases
-# this should be extended
-
-# ValueError("Unable to avoid backslash in f-string expression part")
-# i see...
-@def_macro(strip=False)
-def inject_fstring_backslash_vars():
-    _bfb_nl__ = '\n'
-    _bfb_cr__ = '\r'
-    _bfb_bs__ = '\\'
-
+# Supported: ascii like \n \\ \0 etc
+# Supported: \xXX \uXXXX and \UXXXXXXXX (and octals too so... \033 or \x1b)
+# Supported: \N{snake} too
 
 @def_macro()
 def backport_fstring_backslash_impl(yr_ast_tree):
-    _yre_backport_fstring = re.compile(r'([\n\r\\])')
-    _ymap_backport_fstring = {
-        '\n': '_bfb_nl__',
-        '\r': '_bfb_cr__',
-        '\\': '_bfb_bs__',
-    }
+    _x_escapes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127, 128, 129,
+        130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143,
+        144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157,
+        158, 159, 160, 173, *range(177, 256)
+    ]
+    # \U0001F606
     with MoonGrabber() as grab:
         def moon_filter(moon):
-            if moon._node.__class__ == ast.JoinedStr:
-                grab(moon._up)
-            if moon._node.__class__ == ast.Constant and isinstance(moon._node.value, str):
-                if (upper := moon.upper(ast.JoinedStr)):
-                    moon.splitted = _yre_backport_fstring.split(moon._node.value)
-                    if len(moon.splitted) > 1:
-                        moon.up  # incref
+            if (
+                moon.node.__class__ == ast.Constant
+                and isinstance(moon.node.value, str)
+            ):
+                if moon.upper(ast.JoinedStr):
+                    moon.x_escaped = []
+                    moon.u_escaped = []
+                    with For(ch in moon.node.value) as charloop:
+                        if ord(ch) in _x_escapes:
+                            moon.x_escaped.append(charloop.i)
+                        elif ord(ch) > 255:
+                            moon.u_escaped.append(charloop.i)
+                    if moon.x_escaped or moon.u_escaped:
                         return moon
         for moon in MoonWalking(ast_tree, filter_cb=moon_filter).tree:
-            moon.replace(
-                ast.JoinedStr(
-                    ast.FormattedValue(
-                        value=ast.Name(varname),
-                        conversion=-1,
-                    )
-                    if (varname := _ymap_backport_fstring.get(v))
-                    else ast.Constant(v)
-                    for v in moon.splitted
-                )
-            )
-            backported_fstring = True
+            inner_fstring = ast.JoinedStr(values=(inner_values := []))
+            buffer = ''
+            new_names = set()
+            with For(ch in moon.node.value) as charloop:
+                if (nx := charloop.i not in moon.x_escaped) and charloop.i not in moon.u_escaped:
+                    buffer += charloop.it
+                elif nx:
+                    inner_values.extend([
+                        ast.Constant(buffer),
+                        ast.FormattedValue(
+                            value=ast.Name(new_name := f'_bfb_{ord(ch):08x}__'),
+                            conversion=-1,
+                        )
+                    ])
+                    new_names.add(new_name)
+                    buffer = ''
+                else:
+                    inner_values.extend([
+                        ast.Constant(buffer),
+                        ast.FormattedValue(
+                            value=ast.Name(new_name := f'_bfb_{ord(ch):02x}__'),
+                            conversion=-1,
+                        )
+                    ])
+                    new_names.add(new_name)
+                    buffer = ''
+            if buffer:
+                inner_values.append(ast.Constant(buffer))
+            moon.replace(inner_fstring)
+            backported_fstring |= new_names  # triggers btt to inject vars

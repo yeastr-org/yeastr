@@ -24,4 +24,4 @@ def fn():
     m_after()
 
 print('%s.%s' % ('media', fn()))
-print(f"py{'\n--' * 2}con")
+print(f"{'\033[32m'}py{'\x1b[39;49m'}{'\n--' * 2}con {'\U0001f40d'}")

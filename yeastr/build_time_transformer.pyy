@@ -94,7 +94,7 @@ def def_macro_impl():
 
 @def_macro()
 def backporters():
-    backported_fstring = False
+    backported_fstring = set()
     if self.version_info < (3, 12):
         backport_fstring_backslash_impl(self.ast)
     if self.version_info < (3, 10):
@@ -104,12 +104,12 @@ def backporters():
 @def_macro()
 def additionally():
     # - Maybe inject variables
-    if backported_fstring:
-        for ass in _macros.retrieve(
-            ast.Name('inject_fstring_backslash_vars')
-        )[2]:
-            assert isinstance(ass, ast.Assign), 'what am I injecting?'
-            self.ast.body.insert(0, ass)  # reversed order, who cares?
+    for varname in backported_fstring:
+        add_at_the_module_beginning(self.ast, ast.Assign(
+            targets=[ast.Name(varname, context=ast.Store())],
+            value=ast.Constant(chr(int(varname[len('_bfb_'):-2], 16))),
+            lineno=1,
+        ))
     # - Finally add the configured yeastr runtime import
     if self.autoimport:
         add_at_the_module_beginning(self.ast, ast.Try(
@@ -129,7 +129,6 @@ def additionally():
             orelse=[],
             finalbody=[],
         ))
-    ...
 
 
 class BuildTimeTransformer:

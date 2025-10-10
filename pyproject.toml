@@ -17,8 +17,8 @@ license = "PSF-2.0"
 license-files = ["LICENSE"]
 
 [project.urls]
-Homepage = "https://github.com/CastixGitHub/yeastr"
-Issues = "https://github.com/CastixGitHub/yeastr/issues"
+Homepage = "https://github.com/yeastr-org/yeastr"
+Issues = "https://github.com/yeastr-org/yeastr/issues"
 
 [project.optional-dependencies]
 # TODO: tests... well, took a different path...

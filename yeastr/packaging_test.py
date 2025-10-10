@@ -1,6 +1,6 @@
-_bfb_bs__ = '\\'
-_bfb_cr__ = '\r'
-_bfb_nl__ = '\n'
+_bfb_0001f40d__ = '🐍'
+_bfb_0a__ = '\n'
+_bfb_1b__ = '\x1b'
 
 def fn():
     ymacro_str_ = 'abcdef'
@@ -33,7 +33,7 @@ def fn():
             break
     return ''.join(_str) + '.de'
 print('%s.%s' % ('media', fn()))
-print(f"py{f'{_bfb_nl__}--' * 2}con")
+print(f"{f'{_bfb_1b__}[32m'}py{f'{_bfb_1b__}[39;49m'}{f'{_bfb_0a__}--' * 2}con {f'{_bfb_0001f40d__}'}")
 
 
 

@@ -6,7 +6,7 @@ Yeast(r) transforms syntactic sugar.
 
 You can't make bread/pizza without it.
 
-This is a python only library (currently no deps at all)
+This is a python only library (virtually no deps at all)
 
 You need python>=3.12 to fully generate this library using this library,
 
