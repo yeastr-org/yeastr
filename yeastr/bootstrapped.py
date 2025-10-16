@@ -18,9 +18,18 @@ except ImportError:
     import yeastr.stabilize_ast_for_ci
 
 class Moon:
-    """Moon.up and Moon.node do store a strong ref over the proxied object.
-    This means once you called one of those, the object is alive until you
-    get rid of the Moon, store temporary Moons with MoonGrabber
+    """Yeastr's fundamental building block.
+
+    Basically holds weakref.proxy to ast.AST with position and metadata.
+
+    Helpers to edit the ast-tree in-place.
+
+    node and up are storing a strong ref over the proxied object.
+
+    This means once you called one of those properties,
+    the object is alive until you get rid of the Moon.
+
+    Store temporary Moons with :class:`MoonGrabber`
     """
 
     def __init__(self, node, parent=None, field=None, position=None):
@@ -36,11 +45,13 @@ class Moon:
 
     @property
     def node(self):
+        """``ast.AST`` Corresponding to this moon"""
         self._node_obj = self._node.__weakref__()
         return self._node_obj
 
     @property
     def up(self):
+        """``ast.AST`` Corresponding to this moon's parent"""
         if self._up is None:
             return None
         self._up_obj = self._up.__weakref__()
@@ -48,6 +59,11 @@ class Moon:
 
     @up.setter
     def up(self, new):
+        """Change the parent
+
+        :param new: The new parent
+        :type new: Moon
+        """
         self._up_obj = None
         if new:
             self._up_ref = weakref.ref(new)
@@ -56,10 +72,6 @@ class Moon:
             self._up_ref = None
             self._up = None
 
-    def __del__(self):
-        self._node_obj = None
-        self._up_obj = None
-
     def __str__(self):
         return f'<Moon({self.node.__class__.__name__} {self.up!r}.{self.up_field}[{self.position}])>{ast.unparse(self.node)}</>'
 
@@ -67,6 +79,11 @@ class Moon:
         return f"<Moon({repr(self.node)[5:].split(' ', 1)[0]}) from [{self.position}]{self.up_field}. {self.up.recursive_repr()}>"
 
     def upper(self, kind):
+        """Find the closest upper Moon matching the kind provided
+
+        :param kind: search term
+        :type kind: ast.AST | Tuple[ast.AST]
+        :rtype: Moon | None"""
         node = self.up
         yloopsf = 0
         while node and (not isinstance(node.node, kind)):
@@ -74,17 +91,27 @@ class Moon:
         return node
 
     def replace(self, node):
+        """Edits the ast.AST, in-place replacing moon.node with node"""
         if self.position is not None:
             getattr(self.up.node, self.up_field)[self.position] = node
         else:
             setattr(self.up.node, self.up_field, node)
 
     def pop(self):
+        """Edits the ast.AST, in-place removing moon.node"""
         assert self.position is not None, 'weird pop?'
         field = getattr(self.up.node, self.up_field)
         field.pop(self.position)
 
     def pop_extend(self, nodes, filternone=False):
+        """Edits the ast.AST, in-place removing moon.node and adding nodes
+
+        :param nodes: nodes to be added
+        :type nodes: Iterable[ast.AST | None]
+
+        :param filternone: Strip None, defaults to raise
+        :type filternone: bool
+        """
         if self.position is None:
             raise TransformError(f'pop_extend no known position of {self} over {self.up}')
         p = self.position
@@ -96,10 +123,12 @@ class Moon:
             field[p:p] = nodes
 
     def prepend(self, node):
+        """Edits the ast.AST, in-place adding node before moon.node"""
         assert self.position is not None, 'weird prepend?'
         getattr(self.up.node, self.up_field).insert(self.position, node)
 
     def append(self, node):
+        """Edits the ast.AST, in-place adding node after moon.node"""
         assert self.position is not None, 'weird append?'
         getattr(self.up.node, self.up_field).insert(self.position + 1, node)
 
@@ -119,19 +148,47 @@ class MoonGrabber(AbstractContextManager):
 
 class MoonWalking:
     """AST traversal utility BURLA (Bottom-Up Right-to-Left and Again)
+
+    The tree is flattened, then reversed
+
     You still have a chance to analyze the tree before it is reversed.
+
     This one is useful bacause of how easy it is to make transformers.
+
     Allows for easy reparenting.
-    WARN: Changes to the ast nodes are not reflected into the moonwalking
-    Notes:
-    - I don't like pop music/culture at all
-      - If you're such a fan, tell me, why do you think he named it like so?
+
+    .. warning::
+        Changes to the ast nodes are not reflected into the moonwalking
+
+    .. note:: I don't like pop music/culture at all
+        If you're such a fan, tell me, why do you think he named it like so?
+
         I have my own theory but I'll definitly keep it for myself
-    - reversed() is faster than [::-1]
-    - it's so curious to see decorators are in "depth-first order"
+
+    .. tip:: (implementation choice) A reverse_iterator is faster than the eager [::-1]
+        So if you want to edit the tree, it must be done in the callbacks
+
+    .. note:: It's so curious to see decorators are in "depth-first order"
     """
 
     def __init__(self, root, filter_cb=None, before_reversing_cb=None):
+        """Creates the tree of :class:`Moon`s and almost reverses it.
+
+        :param root: The node to start analyzing from
+        :type root: ast.AST
+
+        :param filter_cb: A 1 argument callback gets the moon, and returns it to store the moon in the tree.
+
+            Optional 2nd argument is the MoonWalking itself, so you can add more moons to the tree.
+
+            Defaults to store every moon.
+        :type filter_cb: Callable[[Moon], Moon] | Callable[[Moon, MoonWalking], Moon]
+
+        :param before_reversing_cb: Callback called before the tree gets reversed.
+
+            If the callback returns True, the tree won't be reversed
+        :type before_reversing_cb: Callable[[MoonWalking], bool]
+        """
         if filter_cb and filter_cb.__code__.co_argcount == 2:
             self.tree = []
             yloopsf = 0
@@ -150,13 +207,15 @@ class MoonWalking:
             return
         self.tree = reversed(self.tree)
 
-    def _iter_ast(self, ast_node, parent=None, field=None, position=None):
+    @staticmethod
+    def _iter_ast(ast_node, parent=None, field=None, position=None):
+        """Generator called by __init__, yields Moons"""
         yield (parent := Moon(ast_node, parent, field, position))
         yloopsf = 0
         for (fieldname, field) in ast.iter_fields(ast_node):
             if isinstance(field, ast.AST):
                 yloopsf = 0
-                for it in self._iter_ast(field, parent, fieldname):
+                for it in MoonWalking._iter_ast(field, parent, fieldname):
                     yield it
                 if yloopsf:
                     break
@@ -165,7 +224,7 @@ class MoonWalking:
                 for (i, it) in enumerate(field):
                     if isinstance(it, ast.AST):
                         yloopsf = 0
-                        for it in self._iter_ast(it, parent, fieldname, i):
+                        for it in MoonWalking._iter_ast(it, parent, fieldname, i):
                             yield it
                         if yloopsf:
                             break
@@ -173,6 +232,7 @@ class MoonWalking:
                     break
 
 def ast_copy(ast_node):
+    """deepcopy of :class:`ast.AST` tree, just faster"""
     if ast_node.__class__ == list:
         return [ast_copy(ast_item) for ast_item in ast_node]
     elif ast_node is None:
@@ -183,8 +243,18 @@ def ast_copy(ast_node):
     return cls(**{field: ast_copy(ast_field) if isinstance((ast_field := getattr(ast_node, field, None)), ast.AST) else [ast_copy(ast_item) for ast_item in ast_field] if ast_field.__class__ == list else ast_field for field in _fields})
 
 def add_at_the_module_beginning(ast_module, ast_node):
-    """adds ast_node after module docstring and future imports"""
-    ast_module.body.insert(0, ast_node)
+    """Adds ast_node after module docstring and future imports"""
+    ymacro_ast_module = ast_module
+    position = 1 if ymacro_ast_module.__class__ == ast.Module and ymacro_ast_module.body[0].__class__ == ast.Expr and (ymacro_ast_module.body[0].value.__class__ == ast.Constant) and (ymacro_ast_module.body[0].value.value == str) else 0
+    yloopsf = 0
+    while ymacro_ast_module.body[position].__class__ == ast.ImportFrom and ymacro_ast_module.body[position].module == '__future__':
+        position += 1
+    ast_module.body.insert(position, ast_node)
+
+def strip_module_docstring(ast_module):
+    assert ast_module.__class__ == ast.Module
+    if (ex := ast_module.body[0]).__class__ == ast.Expr and ex.value.__class__ == ast.Constant and (ex.value.value.__class__ == str):
+        ast_module.body.pop(0)
 
 class TransformError(BaseException):
     ...
@@ -193,6 +263,7 @@ YMF_mLang = 1 << 1
 YMF_expr = 1 << 2
 
 def def_macro(*args, hygienic=False, mLang=False, expr=False, **kwargs):
+    """@def_macro() decorator for JIT macros only"""
 
     def _def_macro(fn):
         nonlocal args
@@ -209,6 +280,7 @@ def def_macro(*args, hygienic=False, mLang=False, expr=False, **kwargs):
     return _def_macro
 
 def mLang_conv(_ast):
+    """JIT macro conversion step for mLang"""
     if isinstance(_ast, ast.Constant):
         return _ast.value
     elif isinstance(_ast, ast.UnaryOp) and isinstance(_ast.op, ast.USub):
@@ -294,15 +366,13 @@ def efiltermapd(_fil, _map, _iter):
         return dict(map(_map, filter(_fil, _iter)))
     return dict(*map(lambda args: _map(*args), filter(lambda args: _fil(*args), _iter)))
 
-# Amalgamating from yeastr/shared.pyy
-try:
-    from bootstrapped import def_macro
-except ImportError:
-    from yeastr.bootstrapped import def_macro
-
+# Amalgamating from yeastr/shared.ypy
 def store_source(debug=False):
+    """Dummy decorator skeleton"""
 
     def _store_source(fn):
+        """Dummy decorator wrapper"""
+        'Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`\n\n    Expects :code:`fn` to have a _source attribute or a function object\n\n    :param del_source: False to debug\n    :type del_source: bool\n\n    Also used for JIT macros\n    '
         if hasattr(fn, '_source'):
             source = fn._source
         else:
@@ -325,6 +395,7 @@ def store_source(debug=False):
         _fn = ast.parse(source)
         del source
         ...
+        'Unparses :code:`_fn: ast.AST` and executes it\n\n    Then stores the function source in the function object\n\n    This is where you can start thinking in a macropy way\n    '
         _source = ast.unparse(_fn)
         file_name_ = '_.py'
         if debug:
@@ -345,13 +416,19 @@ __all__ = []
 
 # Amalgamating from yeastr/impl_macros.pyy
 class Macros:
+    """Contains all the macros"""
 
     def __init__(self):
         self._macros = {}
 
     def add(self, fn, flags, _args, kwargs):
+        """The actual @def_macro() decorator may call this
+
+        Here fn is the decorated function that is inspected to get the source
+        for the macro that gets added"""
         fn.ym_flags = flags
         fn.ymacrokw = kwargs
+        'Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`\n\n    Expects :code:`fn` to have a _source attribute or a function object\n\n    :param del_source: False to debug\n    :type del_source: bool\n\n    Also used for JIT macros\n    '
         if hasattr(fn, '_source'):
             source = fn._source
         else:
@@ -372,9 +449,11 @@ class Macros:
                 source += line + '\n'
             del _source
         _fn = ast.parse(source)
-        self._macros.update({fn.name: (fn, ast.parse(source).body[0].body)})
+        del source
+        self._macros.update({fn.name: (fn, _fn.body[0].body)})
 
     def add_ast(self, fn, name, _ast, flags, _args, kwargs):
+        """The usual @def_macro and @def_macro() may call this"""
         bmacro = fn
         bmacro.name = name
         bmacro.ym_flags = flags
@@ -382,6 +461,13 @@ class Macros:
         self._macros.update({name: (fn, _ast)})
 
     def retrieve(self, ast_node):
+        """
+        :param ast_node: of the macro to retrieve
+        :type ast_node: ast.Name
+
+        :returns: A copy of the body of the macro as the last element of the returned tuple
+        :rtype: Tuple[str, Any, List[ast.AST]]
+        """
         if ast_node.__class__ == ast.Name:
             mname = ast_node.id
             if (duple := self._macros.get(mname)) is not None:
@@ -402,12 +488,43 @@ _bfb_0a__ = '\n'
 
 class BuildTimeTransformer:
 
-    def __init__(self, file_content, pyver, autoimport='minimal_runtime'):
+    def __init__(self, file_content, pyver, /, autoimport='minimal_runtime', strip_module_docstring=False):
+        """Parses source and setups the transformations
+
+        :param file_content: Abstract source code using the python syntax
+        :type file_content: str
+
+        :param pyver: PEP425 target, used to backport
+        :type pyver: str
+
+        :param autoimport: should be one of:
+
+            - False/None (no autoimport at all)
+            - minimal_runtime (backport match, call2comp fallbacks)
+            - bootstrapped (the whole thing)
+            - import_hooks (imports bootstrapped and enables ihooks for .ypy files)
+            - as_decorator (the whole thing but exposed through decorators instead)
+        :type autoimport: str | False | None
+
+        :param strip_module_docstring: (kept in ``self.ast`` until you call yang)
+        :type strip_module_docstring: bool
+       """
         self.ast = ast.parse(file_content)
         self.version_info = (int(pyver[2]), int(pyver[3:].split('-', 1)[0]))
         self.autoimport = autoimport
+        self.strip_module_docstring = strip_module_docstring
 
     def yang(self, macros):
+        """Apply the transformations
+
+        :param macros: macros yeastr knows about
+        :type macros: Macros
+
+        :returns: tranformed source code
+        :rtype: str
+        """
+        if self.strip_module_docstring:
+            strip_module_docstring(self.ast)
         _yfor_def_macro_stage_iter = self.ast.body
         _yfor_def_macro_stage_i = 0
         yloopsf = 0
@@ -485,12 +602,14 @@ class BuildTimeTransformer:
         ymacro_never_defer = False
         ymacro_some_ast = self.ast
         ymacro_macros_ = macros
+        'Entry Point, expands a bunch of macros grouped by depth'
         mp = 'ymacro_%s'
         deferred_macroe = []
         with MoonGrabber() as macro_keepalive:
 
             def filter_macro_moons(moon):
                 ymacro__macros = ymacro_macros_
+                'Overwrites :code:`needs_expansion` and :code:`retrieved`\n\n    :param _macros: the _macros singleton...\n    :type _macros: Macros\n    :param node: check this node is a known macro call\n    :type node: ast.AST\n    '
                 needs_expansion = moon.node.__class__ == ast.Call and moon.node.func.__class__ in (ast.Name, ast.Attribute) and (moon.node not in deferred_macroe) and ((retrieved := ymacro__macros.retrieve(moon.node.func)) is not None)
                 if needs_expansion:
                     moon.retrieved = retrieved
@@ -510,6 +629,7 @@ class BuildTimeTransformer:
                     moon = _yfor_macroexpansionloop_it
                     retrieved = moon.retrieved
                     ymacro__macros = ymacro_macros_
+                    'One round of macro expansion'
                     (mname, fn__, _ast) = retrieved
                     _yfor_kwdloop_iter = moon.node.keywords
                     _yfor_kwdloop_i = 0
@@ -578,6 +698,7 @@ class BuildTimeTransformer:
                             if yloopsf:
                                 break
                     if fn__.ym_flags & YMF_mLang:
+                        'Conditional macro expansion and constexpr'
                         mglobals = {'ast': ast, '__builtins__': restricted_builtins}
                         mEval_ctx = {'__builtins__': restricted_builtins}
                         ymacrokw = fn__.ymacrokw
@@ -610,6 +731,7 @@ class BuildTimeTransformer:
                                             (action, new_body) = perform(subnode, _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i + 1])
                                         except IndexError:
                                             (action, new_body) = perform(subnode)
+                                        "Macro expansion body logics\n    :param loop: a loop label\n    :type loop: there's no Loop type\n    :param hint: debug parameter for unknown actions\n    :type hint: Any\n    "
                                         if action is None:
                                             ...
                                         elif action == 'skip':
@@ -654,6 +776,7 @@ class BuildTimeTransformer:
                             except IndexError:
                                 (action, new_body) = perform(mbody_ast)
                             assert action != 'mEval', 'unexpected mEval at top'
+                            "Macro expansion body logics\n    :param loop: a loop label\n    :type loop: there's no Loop type\n    :param hint: debug parameter for unknown actions\n    :type hint: Any\n    "
                             if action is None:
                                 ...
                             elif action == 'skip':
@@ -941,6 +1064,7 @@ class BuildTimeTransformer:
                     for (k, v) in ((kw.arg, kw.value) for kw in call.keywords):
                         ymatch_7_subject = k
                         if ymatch_7_subject == 'indexed':
+                            print('DEPRECATED: For(..., indexed=...) Choose recompute_end')
                             if not isinstance(v, ast.Constant):
                                 raise TransformError(f'{v} is not a constant')
                             if not isinstance(v.value, bool):
@@ -956,6 +1080,7 @@ class BuildTimeTransformer:
                                 raise TransformError(f'{v} is not a constant')
                             if not isinstance(v.value, bool):
                                 raise TransformError(f'{v.value} is not a boolean')
+                            moon.flags |= INDEXED
                             if v.value:
                                 moon.flags |= RECOMPUTE_END
                             else:

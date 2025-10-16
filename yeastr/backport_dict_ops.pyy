@@ -1,15 +1,21 @@
-# backporting PEP584 | and |= over dicts
-# as long as it's obvious, at least we try not to do wrong transformations
-# since you can define __or__ and __ior__ we are looking for type hinting
-# and dict-constructors|dict-literals|dict-comprehensions
-# so both the terms must be known (and scoped properly) to apply the transformation
-# that is then like `a |= b` -> `a = {**a, **b}`
-# our type hinting understanding doesn't span files or 'runtime typing aliases'
-# nor inheritance
-#
+"""Backporting PEP584 ``|=`` and ``|`` over dicts
 
-# TODO: eww, shouldn't be limited to names
-# TODO: also support NamedExpr
+As long as it's obvious, at least we try not to do wrong transformations
+
+since you can define __or__ and __ior__ we are looking for type hinting
+and dict-constructors|dict-literals|dict-comprehensions
+
+So both the terms must be known (and scoped properly) to apply the transformation
+
+that is then like ``a |= b` -> `a = {**a, **b}``
+
+Our type hinting understanding doesn't span files or 'runtime typing aliases'
+nor inheritance
+
+
+TODO: eww, shouldn't be limited to names
+TODO: also support NamedExpr
+"""
 
 @def_macro(expr=True)
 def is_dict_annotation():

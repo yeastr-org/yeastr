@@ -1,3 +1,99 @@
+"""
+Example
+-------
+
+Try this with ``python -m yeastr.interactive``
+
+.. code-block:: python
+    :linenos:
+
+    with For(chunk in ['asd', '', 'qwe']) as chunkloop:
+        with For(ch in chunk) as charloop:
+            print(ch, charloop.it, charloop.index)
+            if ch == 'w':
+                chunkloop.Break
+        with charloop.orempty:
+            print('charloop empty')
+
+Gets transformed into:
+
+.. code-block:: python
+    :linenos:
+
+    yloopsf = 0
+    for _yfor_chunkloop_it in ['asd', '', 'qwe']:
+        chunk = _yfor_chunkloop_it
+        _yfor_charloop_isempty = True
+        yloopsf = 0
+        for (_yfor_charloop_i, _yfor_charloop_it) in enumerate(chunk):
+            _yfor_charloop_isempty = False
+            ch = _yfor_charloop_it
+            print(ch, _yfor_charloop_it, _yfor_charloop_i)
+            if ch == 'w':
+                yloopsf |= 2
+                break
+        if yloopsf & 2:
+            yloopsf = 0
+            break
+        elif yloopsf:
+            break
+        if _yfor_charloop_isempty:
+            print('charloop empty')
+
+And outputs:
+
+.. code-block::
+
+    a a 0
+    s s 1
+    d d 2
+    charloop empty
+    q q 0
+    w w 1
+
+Specification
+-------------
+
+We have ``For`` loops with:
+
+    * ``loop_label.index`` aka ``loop_label.i``
+
+      By default you can't mutate the index; but once you choose ``recompute_end`` you can
+
+    * ``loop_label.item`` aka ``loop_label.it``
+
+      If you assign to ``loop_label.it``, when you choose ``recompute_end``, it gets mutated in-place over ``loop_label.iter[loop_label.i]``
+
+    * ``recompute_end`` makes your For be promoted to a while, taking care of what your iterable is.
+
+    * ``loop_label.Break`` and ``loop_label.Continue``
+
+    * ``with loop_label.orelse: ...`` the usual ``for/else`` python construct
+
+    * ``with loop_label.orempty: ...`` An additional handy one (never recomputes to check, the above one is the worst scenario)
+
+    * ``enumerate()`` is done automatically as soon as you start using ``loop_label.index``
+
+        and should warn if you mutate it, and you should be able to silence the warning
+
+    * There are two additional ``start`` and ``end`` parameters to ``For``
+
+    * It's currently asserted that an indexed For index can't be negative at the end of the loop
+
+We have ``While`` loops with ``.Break``, ``.Continue``, ``orelse``
+
+.. versionchanged:: 0.0.2
+
+    We had indexed=True, We kept forgetting about recompute_end, now you must make a choice if you meant indexed, so we remove indexed parameter.
+
+.. note:: Newer languages such as ``jai`` provide ``i`` and ``it`` that refer to the current uppest for loop index and item
+
+   That language is not released yet, Myself doesn't have a beta-access to try jai
+
+Reference
+---------
+"""
+
 @def_macro
 def compute_current_depth():
     moon._loop_depth = 0
@@ -157,6 +253,7 @@ def with_namedloops_impl(yr_ast_tree):
                 for k, v in ((kw.arg, kw.value) for kw in call.keywords):
                     match k:
                         case 'indexed':
+                            print('DEPRECATED: For(..., indexed=...) Choose recompute_end')
                             if not isinstance(v, ast.Constant):
                                 raise TransformError(f'{v} is not a constant')
                             if not isinstance(v.value, bool):
@@ -170,6 +267,7 @@ def with_namedloops_impl(yr_ast_tree):
                                 raise TransformError(f'{v} is not a constant')
                             if not isinstance(v.value, bool):
                                 raise TransformError(f'{v.value} is not a boolean')
+                            moon.flags |= INDEXED
                             constant_to_bitfield(RECOMPUTE_END, DONT_RECOMPUTE_END)
                         case 'end':
                             if not isinstance(v, ast.Constant):

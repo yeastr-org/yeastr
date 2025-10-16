@@ -1,3 +1,4 @@
+"""Yeastr internal utils"""
 import ast, re
 import weakref
 import itertools
@@ -20,9 +21,18 @@ except ImportError:
 
 
 class Moon:
-    """Moon.up and Moon.node do store a strong ref over the proxied object.
-    This means once you called one of those, the object is alive until you
-    get rid of the Moon, store temporary Moons with MoonGrabber
+    """Yeastr's fundamental building block.
+
+    Basically holds weakref.proxy to ast.AST with position and metadata.
+
+    Helpers to edit the ast-tree in-place.
+
+    node and up are storing a strong ref over the proxied object.
+
+    This means once you called one of those properties,
+    the object is alive until you get rid of the Moon.
+
+    Store temporary Moons with :class:`MoonGrabber`
     """
     def __init__(self, node, parent=None, field=None, position=None):
         self._node_ref = weakref.ref(node)
@@ -38,11 +48,13 @@ class Moon:
 
     @property
     def node(self):
+        """``ast.AST`` Corresponding to this moon"""
         self._node_obj = self._node.__weakref__()
         return self._node_obj
 
     @property
     def up(self):
+        """``ast.AST`` Corresponding to this moon's parent"""
         if self._up is None:
             return None
         self._up_obj = self._up.__weakref__()
@@ -50,6 +62,11 @@ class Moon:
 
     @up.setter
     def up(self, new):
+        """Change the parent
+
+        :param new: The new parent
+        :type new: Moon
+        """
         self._up_obj = None
         if new:
             self._up_ref = weakref.ref(new)
@@ -58,9 +75,10 @@ class Moon:
             self._up_ref = None
             self._up = None
 
-    def __del__(self):
-        self._node_obj = None
-        self._up_obj = None
+    # nope, that's a mistake
+    #def __del__(self):
+    #    self._node_obj = None
+    #    self._up_obj = None
 
     def __str__(self):
        return (
@@ -73,23 +91,38 @@ class Moon:
         return f'<Moon({repr(self.node)[5:].split(" ", 1)[0]}) from [{self.position}]{self.up_field}. {self.up.recursive_repr()}>'
 
     def upper(self, kind):
+        """Find the closest upper Moon matching the kind provided
+
+        :param kind: search term
+        :type kind: ast.AST | Tuple[ast.AST]
+        :rtype: Moon | None"""
         node = self.up
         while node and not isinstance(node.node, kind):
             node = node.up
         return node
 
     def replace(self, node):
+        """Edits the ast.AST, in-place replacing moon.node with node"""
         if self.position is not None:
             getattr(self.up.node, self.up_field)[self.position] = node
         else:
             setattr(self.up.node, self.up_field, node)
 
     def pop(self):
+        """Edits the ast.AST, in-place removing moon.node"""
         assert self.position is not None, 'weird pop?'
         field = getattr(self.up.node, self.up_field)
         field.pop(self.position)
 
     def pop_extend(self, nodes, filternone=False):
+        """Edits the ast.AST, in-place removing moon.node and adding nodes
+
+        :param nodes: nodes to be added
+        :type nodes: Iterable[ast.AST | None]
+
+        :param filternone: Strip None, defaults to raise
+        :type filternone: bool
+        """
         if self.position is None:
             raise TransformError(f'pop_extend no known position of {self} over {self.up}')
         p = self.position
@@ -101,10 +134,12 @@ class Moon:
             field[p:p] = nodes
 
     def prepend(self, node):
+        """Edits the ast.AST, in-place adding node before moon.node"""
         assert self.position is not None, 'weird prepend?'
         getattr(self.up.node, self.up_field).insert(self.position, node)
 
     def append(self, node):
+        """Edits the ast.AST, in-place adding node after moon.node"""
         assert self.position is not None, 'weird append?'
         getattr(self.up.node, self.up_field).insert(self.position + 1, node)
 
@@ -128,16 +163,27 @@ class MoonGrabber(AbstractContextManager):
 # If you want a Top-Down API, look at our mLang implementation
 class MoonWalking:
     """AST traversal utility BURLA (Bottom-Up Right-to-Left and Again)
+
+    The tree is flattened, then reversed
+
     You still have a chance to analyze the tree before it is reversed.
+
     This one is useful bacause of how easy it is to make transformers.
+
     Allows for easy reparenting.
-    WARN: Changes to the ast nodes are not reflected into the moonwalking
-    Notes:
-    - I don't like pop music/culture at all
-      - If you're such a fan, tell me, why do you think he named it like so?
+
+    .. warning::
+        Changes to the ast nodes are not reflected into the moonwalking
+
+    .. note:: I don't like pop music/culture at all
+        If you're such a fan, tell me, why do you think he named it like so?
+
         I have my own theory but I'll definitly keep it for myself
-    - reversed() is faster than [::-1]
-    - it's so curious to see decorators are in "depth-first order"
+
+    .. tip:: (implementation choice) A reverse_iterator is faster than the eager [::-1]
+        So if you want to edit the tree, it must be done in the callbacks
+
+    .. note:: It's so curious to see decorators are in "depth-first order"
     """
     def __init__(  # MoonWalking
         self,
@@ -145,6 +191,23 @@ class MoonWalking:
         filter_cb=None,
         before_reversing_cb=None,
     ):
+        """Creates the tree of :class:`Moon`s and almost reverses it.
+
+        :param root: The node to start analyzing from
+        :type root: ast.AST
+
+        :param filter_cb: A 1 argument callback gets the moon, and returns it to store the moon in the tree.
+
+            Optional 2nd argument is the MoonWalking itself, so you can add more moons to the tree.
+
+            Defaults to store every moon.
+        :type filter_cb: Callable[[Moon], Moon] | Callable[[Moon, MoonWalking], Moon]
+
+        :param before_reversing_cb: Callback called before the tree gets reversed.
+
+            If the callback returns True, the tree won't be reversed
+        :type before_reversing_cb: Callable[[MoonWalking], bool]
+        """
         if filter_cb and filter_cb.__code__.co_argcount == 2:  # bootstrap workaround
             self.tree = []
             for moon in self._iter_ast(root):
@@ -161,21 +224,23 @@ class MoonWalking:
             return  # eg: lambda: True will not reverse the flattened tree
         self.tree = reversed(self.tree)
 
-    # TODO: why not a staticmethod?
-    def _iter_ast(self, ast_node, parent=None, field=None, position=None):
+    @staticmethod
+    def _iter_ast(ast_node, parent=None, field=None, position=None):
+        """Generator called by __init__, yields Moons"""
         yield (parent := Moon(ast_node, parent, field, position))
         for fieldname, field in ast.iter_fields(ast_node):
             if isinstance(field, ast.AST):
-                for it in self._iter_ast(field, parent, fieldname):
+                for it in MoonWalking._iter_ast(field, parent, fieldname):
                     yield it
             elif isinstance(field, list):
                 for i, it in enumerate(field):
                     if isinstance(it, ast.AST):
-                        for it in self._iter_ast(it, parent, fieldname, i):
+                        for it in MoonWalking._iter_ast(it, parent, fieldname, i):
                             yield it
 
 
 def ast_copy(ast_node):
+    """deepcopy of :class:`ast.AST` tree, just faster"""
     if ast_node.__class__ == list:
         return [ast_copy(ast_item) for ast_item in ast_node]
     elif ast_node is None:
@@ -195,10 +260,42 @@ def ast_copy(ast_node):
         for field in _fields
     })
 
+@def_macro(expr=True)
+def yam_module_docstring(ast_module):
+    (
+        ast_module.__class__ == ast.Module
+        and ast_module.body[0].__class__ == ast.Expr
+        and ast_module.body[0].value.__class__ == ast.Constant
+        and ast_module.body[0].value.value == str
+    )
+
+@def_macro(expr=True)
+def yam_module_future_import(ast_node):
+    (
+        ast_node.__class__ == ast.ImportFrom
+        and ast_node.module == '__future__'
+    )
+
+@def_macro
+def module_future_imports_count(ast_module, yr_counter):
+    counter = 1 if yam_module_docstring(ast_module) else 0
+    while yam_module_future_import(ast_module.body[counter]):
+        counter += 1
+
 def add_at_the_module_beginning(ast_module, ast_node):
-    """adds ast_node after module docstring and future imports"""
-    # TODO: Well, that's the idea of this function :D
-    ast_module.body.insert(0, ast_node)
+    """Adds ast_node after module docstring and future imports"""
+    module_future_imports_count(ast_module, position)
+    ast_module.body.insert(position, ast_node)
+
+
+def strip_module_docstring(ast_module):
+    assert ast_module.__class__ == ast.Module
+    if (
+        (ex := ast_module.body[0]).__class__ == ast.Expr
+        and ex.value.__class__ == ast.Constant
+        and ex.value.value.__class__ == str
+    ):
+        ast_module.body.pop(0)
 
 
 class TransformError(BaseException): ...
@@ -211,6 +308,7 @@ YMF_expr =     1 << 2
 
 # You must always use @def_macro() when not using the BuildTimeTransformer
 def def_macro(*args, hygienic=False, mLang=False, expr=False, **kwargs):
+    """@def_macro() decorator for JIT macros only"""
     def _def_macro(fn):
         nonlocal args
         fn.name = fn.__name__
@@ -227,6 +325,8 @@ def def_macro(*args, hygienic=False, mLang=False, expr=False, **kwargs):
 
 
 def mLang_conv(_ast):
+    """JIT macro conversion step for mLang"""
+    # TODO: isn't just literal_eval but more limited?
     if isinstance(_ast, ast.Constant):
         return _ast.value
     elif (

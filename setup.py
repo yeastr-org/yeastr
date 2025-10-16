@@ -11,7 +11,7 @@ classifiers = [
     "Intended Audience :: Telecommunications Industry",  # needs this imho
     "Topic :: Software Development",
     # "License :: OSI Approved :: Python Software Foundation License 2.0",
-    *["Programming Language :: Python :: 3.{n}" for n in range(8, 15)],
+    *[f"Programming Language :: Python :: 3.{n}" for n in range(8, 15)],
 ]
 
 

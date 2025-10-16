@@ -1,3 +1,4 @@
+.pypirc
 __pycache__
 dist
 *.py[co]
@@ -9,6 +10,7 @@ PEP*
 *.swp
 
 _debug_last.py
+bootstrapped.pynew
 
 build/
 

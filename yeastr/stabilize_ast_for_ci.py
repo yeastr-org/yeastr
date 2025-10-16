@@ -1,6 +1,11 @@
+"""Monkeypatching ast
+
+- sort exception handlers
+
+- always explicitly delimit tuples with parens
+
+"""
 import ast
-
-
 
 # trick python 3.14 into defining ast._Unparser if it didn't already
 ast.unparse(ast.Module(type_ignores=[], body=[]))

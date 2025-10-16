@@ -1,3 +1,7 @@
+"""Run python -m yeastr.interactive
+
+to get into the REPL
+"""
 # Important: add things to this module, as they will end up in the REPL's
 # default globals.
 from packaging.tags import interpreter_version

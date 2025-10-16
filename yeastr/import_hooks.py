@@ -28,7 +28,7 @@ class YeastrPathFinder(PathFinder):
         try:
             finder = cls.path_importer_cache[path]
         except KeyError:
-            finder = FileFinder(path, (YeastrFileLoader, ['.ypy']))
+            finder = FileFinder(path, (YeastrFileLoader, ['.ypy', '.ppy', 'pyy']))
             cls.path_importer_cache[path] = finder
         return finder
 

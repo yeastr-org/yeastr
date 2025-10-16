@@ -1,18 +1,51 @@
+"""
+Parameters Specification
+------------------------
+
+.. image:: _static/macro_params.png
+.. graphviz::
+    :align: center
+    :broken: eww, help me write that as text/diagram
+
+    digraph def_macro_params {
+        mLang;
+        expr;
+        hygienic;
+        strip;
+        **extra;
+    }
+
+    digraph macro_params {
+        positional_params_only,
+        yr_*,
+    }
+
+
+TODO, look at the yeastr-test-proj repo for examples
+
+"""
+# TODO: rename to MacroContext?
 class Macros:
+    """Contains all the macros"""
     def __init__(self):
         self._macros = {}
 
     def add(self, fn, flags, _args, kwargs):
+        """The actual @def_macro() decorator may call this
+
+        Here fn is the decorated function that is inspected to get the source
+        for the macro that gets added"""
         # Just-In-Time / Import-time def_macro
         fn.ym_flags = flags
         fn.ymacrokw = kwargs
-        prepare_source(del_source=False)
+        prepare_source()
         self._macros.update({
-            fn.name: (fn, ast.parse(source).body[0].body)
+            fn.name: (fn, _fn.body[0].body)
         })
 
     def add_ast(self, fn, name, _ast, flags, _args, kwargs):
-        # Ahead-of-time / build-time def_macro
+        """The usual @def_macro and @def_macro() may call this"""
+        # Ahead-of-time / build-time / import-hooks def_macro
         bmacro = fn
         bmacro.name = name
         bmacro.ym_flags = flags
@@ -20,6 +53,13 @@ class Macros:
         self._macros.update({name: (fn, _ast)})
 
     def retrieve(self, ast_node):
+        """
+        :param ast_node: of the macro to retrieve
+        :type ast_node: ast.Name
+
+        :returns: A copy of the body of the macro as the last element of the returned tuple
+        :rtype: Tuple[str, Any, List[ast.AST]]
+        """
         if ast_node.__class__ == ast.Name:
             mname = ast_node.id
             if (duple := self._macros.get(mname)) is not None:
@@ -32,11 +72,21 @@ _macros = Macros()
 @def_macro(expr=True)
 def yam_with_call_name(node, call, name):
     '''Yeastr Ast Match: expr predicate:
-    yam_with_call_name(ast_node, call, 'mElse')
-    will match if ast_node is the parsed form of
-    with mElse():
-    And, will create a variable named 'call'
-    And another one called 'what' (you can grab `as name` from)
+
+    Example: :code:`yam_with_call_name(ast_node, call, 'mElse')`
+
+    Will match if ast_node would unparse like :code:`with mElse():`
+
+    And, will bind a variable named 'call'
+
+    And another one called literally 'what' (you can grab `as name` from)
+
+    :param node: to test
+    :type node: ast.AST
+    :param call: a python name to be bound
+    :type: call: object
+    :param name: to test
+    :type name: str
     '''
     (
         isinstance(node, ast.With)
@@ -48,10 +98,17 @@ def yam_with_call_name(node, call, name):
 
 @def_macro(expr=True)
 def mLang_evaluate_mIf():
+    """Unparse and eval the test condition of an :code:`mIf`"""
     eval(compile(ast.unparse(call.args[0]), '_mLang.py', 'eval'), mglobals, mlocals)
 
 @def_macro()
 def perform_body(yr_loop, yr_hint):
+    """Macro expansion body logics
+    :param loop: a loop label
+    :type loop: there's no Loop type
+    :param hint: debug parameter for unknown actions
+    :type hint: Any
+    """
     if action is None:
         ...
     elif action == 'skip':
@@ -76,6 +133,7 @@ def perform_body(yr_loop, yr_hint):
 
 @def_macro()
 def do_mLang():
+    """Conditional macro expansion and constexpr"""
     # first of all, this one is Top-Down, but everything else is Bottom-Up
     # But since it's a language, interpreting it Bottom Up would be so weird
     mglobals = {'ast': ast, '__builtins__': restricted_builtins}
@@ -149,6 +207,13 @@ def do_mLang():
 
 @def_macro()
 def macros_to_be_expanded(_macros, yr_node):
+    """Overwrites :code:`needs_expansion` and :code:`retrieved`
+
+    :param _macros: the _macros singleton...
+    :type _macros: Macros
+    :param node: check this node is a known macro call
+    :type node: ast.AST
+    """
     needs_expansion = (
         node.__class__ == ast.Call
         and node.func.__class__ in (ast.Name, ast.Attribute)
@@ -157,10 +222,9 @@ def macros_to_be_expanded(_macros, yr_node):
     )
 
 
-# TODO: constant parameters probably do not deserve a name
-
 @def_macro()
 def with_macros_impl(_macros):
+    """One round of macro expansion"""
     mname, fn__, _ast = retrieved
     #print(f'EXPANDING {mname}')
     with For(arg in moon.node.keywords, indexed=True) as kwdloop:
@@ -259,8 +323,10 @@ def with_macros_impl(_macros):
             MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
         moon.up.pop_extend(_ast)
 
+
 @def_macro()
 def with_macros_impl_wrapper(macros_, some_ast, never_defer):
+    """Entry Point, expands a bunch of macros grouped by depth"""
     mp = 'ymacro_%s'
     deferred_macroe = []
     # we are expanding all the macro found, then we repeat

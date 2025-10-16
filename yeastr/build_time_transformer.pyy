@@ -131,19 +131,46 @@ class BuildTimeTransformer:
         self,
         file_content,
         pyver,  # pep425 str
+        /,
         autoimport='minimal_runtime',
-):
-        # autoimport should be one of:
-        # - False/None (no autoimport at all)
-        # - minimal_runtime (backport match, call2comp fallbacks)
-        # - bootstrapped (the whole thing)
-        # - import_hooks (imports bootstrapped and enables ihooks for .ypy files)
-        # - as_decorator (the whole thing but exposed through decorators instead)
+        strip_module_docstring=False,
+    ):
+        """Parses source and setups the transformations
+
+        :param file_content: Abstract source code using the python syntax
+        :type file_content: str
+
+        :param pyver: PEP425 target, used to backport
+        :type pyver: str
+
+        :param autoimport: should be one of:
+
+            - False/None (no autoimport at all)
+            - minimal_runtime (backport match, call2comp fallbacks)
+            - bootstrapped (the whole thing)
+            - import_hooks (imports bootstrapped and enables ihooks for .ypy files)
+            - as_decorator (the whole thing but exposed through decorators instead)
+        :type autoimport: str | False | None
+
+        :param strip_module_docstring: (kept in ``self.ast`` until you call yang)
+        :type strip_module_docstring: bool
+       """
         self.ast = ast.parse(file_content)
         self.version_info = (int(pyver[2]), int(pyver[3:].split('-', 1)[0]))
         self.autoimport = autoimport
+        self.strip_module_docstring = strip_module_docstring
 
     def yang(self, macros):
+        """Apply the transformations
+
+        :param macros: macros yeastr knows about
+        :type macros: Macros
+
+        :returns: tranformed source code
+        :rtype: str
+        """
+        if self.strip_module_docstring:
+            strip_module_docstring(self.ast)
         def_macro_impl()
         with_macros_impl_wrapper(macros, self.ast, False)
         backporters()

@@ -1,12 +1,26 @@
+"""Shared macros you can depend on
+
+To create more ast transformer decorators
+
+"""
 # TODO: handle this import somehow...
-try:
-    from bootstrapped import def_macro
-except ImportError:
-    from yeastr.bootstrapped import def_macro
+#try:
+#    from bootstrapped import def_macro
+#except ImportError:
+#    from yeastr.bootstrapped import def_macro
 
 
 @def_macro(hygienic=False, mLang=True, del_source=True)
 def prepare_source():
+    """Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`
+
+    Expects :code:`fn` to have a _source attribute or a function object
+
+    :param del_source: False to debug
+    :type del_source: bool
+
+    Also used for JIT macros
+    """
     if hasattr(fn, '_source'):
         source = fn._source
     else:
@@ -29,12 +43,18 @@ def prepare_source():
 
     _fn = ast.parse(source)
 
-    with mIf(del_source):
+    with mIf(del_source):  # keep for debug purposes
         del source
 
 
 @def_macro(hack_globals=None, custom_globals=None, mLang=True)
 def and_so_on():
+    """Unparses :code:`_fn: ast.AST` and executes it
+
+    Then stores the function source in the function object
+
+    This is where you can start thinking in a macropy way
+    """
     _source = ast.unparse(_fn)
     file_name_ = '_.py'
     if debug:
@@ -76,7 +96,9 @@ def and_so_on():
 
 
 def store_source(debug=False):
+    """Dummy decorator skeleton"""
     def _store_source(fn):
+        """Dummy decorator wrapper"""
         prepare_source()
         ...
         and_so_on()

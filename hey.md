@@ -51,16 +51,6 @@ Manual testing is more appropriate until we are ready for the first pre-alpha re
 
 All of the examples are used as tests now
 
-### Why should one use the new loops syntax?
-
-Because it is meant to avoid the need of refactoring, it's a clear API.
-
-What do you mean?
-
-You usually start with a for, then you figure you need to enumerate, then you figure you need a while instead... it's 3 times you have to change names around and deal with index initialization, increments and so on, this distracts you from the idea your're implementing.
-
-With yeastr, you start with a for and promote it to For when you need to, your named item doesn't need refactoring, your enumerated index have a uniform name and you never have to refactor into a while
-
 ### hey
 We have already too much sparse and repetitive documentation, we should take care of it
 
