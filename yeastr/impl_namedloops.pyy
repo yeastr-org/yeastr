@@ -72,7 +72,7 @@ We have ``For`` loops with:
 
     * ``with loop_label.orempty: ...`` An additional handy one (never recomputes to check, the above one is the worst scenario)
 
-    * ``enumerate()`` is done automatically as soon as you start using ``loop_label.index``
+    * ``enumerate()`` is added automatically as soon as you start using ``loop_label.index``
 
         and should warn if you mutate it, and you should be able to silence the warning
 
@@ -80,15 +80,29 @@ We have ``For`` loops with:
 
     * It's currently asserted that an indexed For index can't be negative at the end of the loop
 
+    * If you are iterating some generator, choosing recompute_end leads to `TypeError at runtime``
+
+    * If you are going negative, don't be surprised, index always grows up:
+
+        + reversed() can't be used with recompute_end
+
+        + [::-1] is eager, your mutable slice is accessible through ``loop_label.iter`` within the loop's parent scope
+
 We have ``While`` loops with ``.Break``, ``.Continue``, ``orelse``
 
 .. versionchanged:: 0.0.2
 
-    We had indexed=True, We kept forgetting about recompute_end, now you must make a choice if you meant indexed, so we remove indexed parameter.
+    - We had indexed=True, We kept forgetting about recompute_end, now you must make a choice if you meant indexed, so we remove indexed parameter.
 
-.. note:: Newer languages such as ``jai`` provide ``i`` and ``it`` that refer to the current uppest for loop index and item
+    - recompute_end bitmask was incorrect, no test reported it :O
+
+.. note:: Newer languages such as ``jai`` provide ``i`` and ``it`` that refer to the current for loop index and item
 
    That language is not released yet, Myself doesn't have a beta-access to try jai
+
+   I have no idea whether you can mutate the index or not in jai.
+
+   But that is the only language (I know about) with implicit names in loops.
 
 Reference
 ---------
@@ -253,7 +267,7 @@ def with_namedloops_impl(yr_ast_tree):
                 for k, v in ((kw.arg, kw.value) for kw in call.keywords):
                     match k:
                         case 'indexed':
-                            print('DEPRECATED: For(..., indexed=...) Choose recompute_end')
+                            # print('DEPRECATED: For(..., indexed=...) Choose recompute_end')
                             if not isinstance(v, ast.Constant):
                                 raise TransformError(f'{v} is not a constant')
                             if not isinstance(v.value, bool):

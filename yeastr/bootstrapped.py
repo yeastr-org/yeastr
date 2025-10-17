@@ -1064,7 +1064,6 @@ class BuildTimeTransformer:
                     for (k, v) in ((kw.arg, kw.value) for kw in call.keywords):
                         ymatch_7_subject = k
                         if ymatch_7_subject == 'indexed':
-                            print('DEPRECATED: For(..., indexed=...) Choose recompute_end')
                             if not isinstance(v, ast.Constant):
                                 raise TransformError(f'{v} is not a constant')
                             if not isinstance(v.value, bool):
