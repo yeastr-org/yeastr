@@ -734,7 +734,7 @@ def with_namedloops(debug=False):
             USES_CONTINUE = 1 << 5
             FAST_OREMPTY = 1 << 6
             NOT_INDEXED = 61
-            DONT_RECOMPUTE_END = 59
+            DONT_RECOMPUTE_END = 55
 
             def moon_filter(moon, moonwalker):
                 moon.flags = 0

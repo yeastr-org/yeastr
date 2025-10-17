@@ -201,7 +201,7 @@ def with_namedloops_impl(yr_ast_tree):
         USES_CONTINUE = 1 << 5
         FAST_OREMPTY  = 1 << 6
         NOT_INDEXED        = 0b111101
-        DONT_RECOMPUTE_END = 0b111011
+        DONT_RECOMPUTE_END = 0b110111
         def moon_filter(moon, moonwalker):
             moon.flags = 0
             moon.loop_depth = 0
