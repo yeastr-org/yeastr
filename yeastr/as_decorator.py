@@ -235,6 +235,8 @@ def ast_copy(ast_node):
     """deepcopy of :class:`ast.AST` tree, just faster"""
     if ast_node.__class__ == list:
         return [ast_copy(ast_item) for ast_item in ast_node]
+    elif ast_node.__class__ == str:
+        return ast_node
     elif ast_node is None:
         return None
     _fields = ast_node._fields
@@ -256,13 +258,21 @@ def strip_module_docstring(ast_module):
     if (ex := ast_module.body[0]).__class__ == ast.Expr and ex.value.__class__ == ast.Constant and (ex.value.value.__class__ == str):
         ast_module.body.pop(0)
 
+def strip_docstring(_ast):
+    if _ast[0].__class__ == ast.Expr and _ast[0].value.__class__ == ast.Constant and (_ast[0].value.value.__class__ == str):
+        _ast.pop(0)
+
 class TransformError(BaseException):
     ...
 YMF_hygienic = 1 << 0
 YMF_mLang = 1 << 1
 YMF_expr = 1 << 2
+YMF_XMacro = 1 << 3
+YMF_YMacro = 1 << 4
+YMF_ZMacro = 1 << 5
+YMF_WMacro = 1 << 6
 
-def def_macro(*args, hygienic=False, mLang=False, expr=False, **kwargs):
+def def_macro(*args, hygienic=False, mLang=False, expr=False, XMacro=False, YMacro=False, ZMacro=False, WMacro=False, **kwargs):
     """@def_macro() decorator for JIT macros only"""
 
     def _def_macro(fn):
@@ -275,6 +285,14 @@ def def_macro(*args, hygienic=False, mLang=False, expr=False, **kwargs):
             flags |= YMF_mLang
         if expr:
             flags |= YMF_expr
+        if XMacro:
+            flags |= YMF_XMacro
+        if YMacro:
+            flags |= YMF_YMacro
+        if ZMacro:
+            flags |= YMF_ZMacro
+        if WMacro:
+            flags |= YMF_WMacro
         _macros.add(fn, flags, args, kwargs)
         return fn
     return _def_macro
@@ -439,9 +457,10 @@ def with_macros(debug=False):
                     'One round of macro expansion'
                     (mname, fn__, _ast) = retrieved
                     _yfor_kwdloop_iter = moon.node.keywords
+                    _yfor_kwdloop_end = len(_yfor_kwdloop_iter)
                     _yfor_kwdloop_i = 0
                     yloopsf = 0
-                    while _yfor_kwdloop_i < len(_yfor_kwdloop_iter):
+                    while _yfor_kwdloop_i < _yfor_kwdloop_end:
                         arg = _yfor_kwdloop_iter[_yfor_kwdloop_i]
                         if arg.arg == 'defer_expansion' and isinstance(arg.value, ast.Constant) and arg.value.value:
                             del _yfor_kwdloop_iter[_yfor_kwdloop_i]
@@ -455,10 +474,86 @@ def with_macros(debug=False):
                         continue
                     elif yloopsf:
                         break
-                    if not fn__.ym_flags & YMF_expr:
+                    if fn__.ym_flags & YMF_XMacro:
+                        strip_docstring(_ast)
+                        if fn__.ym_flags & YMF_hygienic:
+                            assert all((p is None for p in where)), 'incompatibilities?'
+                        if fn__.ym_flags & YMF_mLang:
+                            raise NotImplementedError('X Macro with mLang')
+                        assert len(moon.node.args) == 1, 'mismatching XMacro(YMacro) arity'
+                        assert moon.node.args[0].__class__ == ast.Name, 'bad XMacro(YMacro) param'
+                        (xYname, xYfn, xYast) = _macros.retrieve(moon.node.args[0])
+                        assert xYfn.ym_flags & YMF_YMacro
+                        if xYfn.ym_flags & YMF_mLang:
+                            raise NotImplementedError('Y Macro with mLang')
+                        strip_docstring(xYast)
+                        ym_params = list(signature(xYfn).parameters.keys())
+                        ym_quoted = [f'{p}_quoted' for p in ym_params]
+                        moon.expanded = []
+                        with MoonGrabber() as keepalive:
+
+                            def moon_filter(moon):
+                                if moon._node.__class__ == ast.Name and ((fpname := (moon._node.id in ym_params)) or moon._node.id in ym_quoted):
+                                    moon.argname = moon._node.id
+                                    moon.suffix = ''
+                                    if not fpname:
+                                        moon.suffix = '_quoted'
+                                    else:
+                                        moon.suffix = '_token'
+                                    keepalive(moon.up)
+                                    return moon
+                            yloopsf = 0
+                            for _x in _ast:
+                                if not (_x.__class__ == ast.Expr and (xname := _x.value).__class__ == ast.Name and (xstr := xname.id)):
+                                    raise NotImplementedError('XMacro is not a list of names, this is TODO')
+                                preserved_xYast = ast_copy(xYast)
+                                fake_module = ast.Module(body=preserved_xYast)
+                                yloopsf = 0
+                                for _yfor_xymoons_it in MoonWalking(fake_module, filter_cb=moon_filter).tree:
+                                    if _yfor_xymoons_it.suffix == '_quoted':
+                                        _yfor_xymoons_it.replace(ast.Constant(xstr))
+                                    else:
+                                        _yfor_xymoons_it.replace(ast.Name(xstr, ctx=_yfor_xymoons_it.node.ctx))
+                                if yloopsf:
+                                    break
+                                moon.expanded.extend(preserved_xYast)
+                            if yloopsf:
+                                break
+                    elif fn__.ym_flags & YMF_ZMacro:
+                        strip_docstring(_ast)
+                        if fn__.ym_flags & YMF_hygienic:
+                            assert all((p is None for p in where)), 'incompatibilities?'
+                        assert len(moon.node.args) == 2, 'mismatching ZMacro(XMacro, WMacro) arity'
+                        assert moon.node.args[0].__class__ == ast.Name, 'bad ZMacro 1st param, must be XMacro'
+                        assert moon.node.args[1].__class__ == ast.Name, 'bad ZMacro 2nd param, must be WMacro'
+                        (zXname, zXfn, zXast) = ymacro__macros.retrieve(moon.node.args[0])
+                        (zWname, zWfn, zWast) = ymacro__macros.retrieve(moon.node.args[1])
+                        strip_docstring(zXast)
+                        strip_docstring(zWast)
+                        ...
+                    elif fn__.ym_flags & YMF_expr:
+                        strip_docstring(_ast)
+                        formal_params = list(signature(fn__).parameters.keys())
+                        with MoonGrabber() as keepalive:
+
+                            def moon_filter(moon):
+                                if moon._node.__class__ == ast.Name and moon._node.id in formal_params:
+                                    keepalive(moon.up)
+                                    return moon
+
+                            def moon_walk(moonwalker):
+                                yloopsf = 0
+                                for _n in moonwalker.tree:
+                                    _n.replace(ast.Name(formal_params[formal_param_i]) if (actual_param := moon.node.args[(formal_param_i := formal_params.index(_n.node.id))]).__class__ == ast.Name and (actual_param := moon.node.args[(formal_param_i := formal_params.index(_n.node.id))]).id == '_' else actual_param)
+                                return True
+                            yloopsf = 0
+                            for ast__ in _ast:
+                                MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
+                            if yloopsf:
+                                break
+                    else:
                         if not isinstance(moon.up.node, ast.Expr):
                             raise NotImplementedError(f'macro expansion within {moon.up.node.__class__}')
-                        is_expression_macro = False
                         where = [p[3:] if p.startswith('yr_') else None for p in signature(fn__).parameters.keys()]
                         if fn__.ym_flags & YMF_hygienic:
                             assert all((p is None for p in where)), 'incompatibilities?'
@@ -482,30 +577,8 @@ def with_macros(debug=False):
                                 MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
                             if yloopsf:
                                 break
-                    else:
-                        if isinstance(_ast[0], ast.Expr) and isinstance(_ast[0].value, ast.Constant) and isinstance(_ast[0].value.value, str):
-                            _ast.pop(0)
-                        is_expression_macro = True
-                        params = list(signature(fn__).parameters.keys())
-                        with MoonGrabber() as keepalive:
-
-                            def moon_filter(moon):
-                                if isinstance(moon._node, ast.Name) and moon._node.id in params:
-                                    keepalive(moon.up)
-                                    return moon
-
-                            def moon_walk(moonwalker):
-                                yloopsf = 0
-                                for _n in moonwalker.tree:
-                                    _n.replace(moon.node.args[params.index(_n.node.id)])
-                                return True
-                            yloopsf = 0
-                            for ast__ in _ast:
-                                MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
-                            if yloopsf:
-                                break
                     if fn__.ym_flags & YMF_mLang:
-                        'Conditional macro expansion and constexpr'
+                        'Conditional macro expansion and maybe constexpr'
                         mglobals = {'ast': ast, '__builtins__': restricted_builtins}
                         mEval_ctx = {'__builtins__': restricted_builtins}
                         ymacrokw = fn__.ymacrokw
@@ -513,16 +586,16 @@ def with_macros(debug=False):
                         mlocals.update({k.arg: mLang_conv(k.value) for k in moon.node.keywords if k.arg in ymacrokw.keys()})
 
                         def perform(starting_node, next_node=None):
-                            if isinstance(starting_node, ast.With) and isinstance((what := starting_node.items), list) and (len(what) == 1) and isinstance((call := what[0].context_expr), ast.Call) and (call.func.id == 'mIf'):
+                            if starting_node.__class__ == ast.With and isinstance((what := starting_node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mIf'):
                                 if eval(compile(ast.unparse(call.args[0]), '_mLang.py', 'eval'), mglobals, mlocals):
-                                    if isinstance(next_node, ast.With) and isinstance((what := next_node.items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'mElse'):
+                                    if next_node.__class__ == ast.With and isinstance((what := next_node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mElse'):
                                         return ('skip-else', starting_node.body)
                                     return ('then', starting_node.body)
-                                elif isinstance(next_node, ast.With) and isinstance((what := next_node.items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'mElse'):
+                                elif next_node.__class__ == ast.With and isinstance((what := next_node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mElse'):
                                     return ('otherwise', next_node.body)
                                 else:
                                     return ('skip', [])
-                            elif isinstance(starting_node, ast.Call) and isinstance(starting_node.func, ast.Name) and (starting_node.func.id == 'mEval'):
+                            elif starting_node.__class__ == ast.Call and starting_node.func.__class__ == ast.Name and (starting_node.func.id == 'mEval'):
                                 return ('mEval', ast.parse(str(eval(ast.unparse(starting_node.args[0]), mEval_ctx)), '_mEval.py', 'eval').body)
                             fields = [(field, getattr(starting_node, field)) for field in starting_node._fields if hasattr(starting_node, field)]
                             yloopsf = 0
@@ -538,22 +611,22 @@ def with_macros(debug=False):
                                             (action, new_body) = perform(subnode, _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i + 1])
                                         except IndexError:
                                             (action, new_body) = perform(subnode)
-                                        "Macro expansion body logics\n    :param loop: a loop label\n    :type loop: there's no Loop type\n    :param hint: debug parameter for unknown actions\n    :type hint: Any\n    "
+                                        "Macro expansion body logics\n\n    :param loop: a loop label\n    :type loop: there's no Loop type\n    :param hint: debug parameter for unknown actions\n    :type hint: Any\n    "
                                         if action is None:
                                             ...
                                         elif action == 'skip':
-                                            assert isinstance(_yfor_subnodes_loop_iter[_yfor_subnodes_loop_i], ast.With) and isinstance((what := _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'mIf')
+                                            assert _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].__class__ == ast.With and isinstance((what := _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mIf')
                                             del _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i]
                                             _yfor_subnodes_loop_i = max(_yfor_subnodes_loop_i - 1, -1)
                                         elif action in ('otherwise', 'skip-else'):
-                                            assert isinstance(_yfor_subnodes_loop_iter[_yfor_subnodes_loop_i], ast.With) and isinstance((what := _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'mIf')
+                                            assert _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].__class__ == ast.With and isinstance((what := _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mIf')
                                             del _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i]
-                                            assert isinstance(_yfor_subnodes_loop_iter[_yfor_subnodes_loop_i], ast.With) and isinstance((what := _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'mElse')
+                                            assert _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].__class__ == ast.With and isinstance((what := _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mElse')
                                             del _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i]
                                             _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i:_yfor_subnodes_loop_i] = new_body
                                             _yfor_subnodes_loop_i = max(_yfor_subnodes_loop_i - 2, -1)
                                         elif action in ('then', 'mEval'):
-                                            assert isinstance(_yfor_subnodes_loop_iter[_yfor_subnodes_loop_i], ast.With) and isinstance((what := _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == ('mIf' if action == 'then' else 'mEval'))
+                                            assert _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].__class__ == ast.With and isinstance((what := _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == ('mIf' if action == 'then' else 'mEval'))
                                             del _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i]
                                             _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i:_yfor_subnodes_loop_i] = new_body
                                             _yfor_subnodes_loop_i -= 1
@@ -583,22 +656,22 @@ def with_macros(debug=False):
                             except IndexError:
                                 (action, new_body) = perform(mbody_ast)
                             assert action != 'mEval', 'unexpected mEval at top'
-                            "Macro expansion body logics\n    :param loop: a loop label\n    :type loop: there's no Loop type\n    :param hint: debug parameter for unknown actions\n    :type hint: Any\n    "
+                            "Macro expansion body logics\n\n    :param loop: a loop label\n    :type loop: there's no Loop type\n    :param hint: debug parameter for unknown actions\n    :type hint: Any\n    "
                             if action is None:
                                 ...
                             elif action == 'skip':
-                                assert isinstance(_yfor_mbody_loop_iter[_yfor_mbody_loop_i], ast.With) and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'mIf')
+                                assert _yfor_mbody_loop_iter[_yfor_mbody_loop_i].__class__ == ast.With and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mIf')
                                 del _yfor_mbody_loop_iter[_yfor_mbody_loop_i]
                                 _yfor_mbody_loop_i = max(_yfor_mbody_loop_i - 1, -1)
                             elif action in ('otherwise', 'skip-else'):
-                                assert isinstance(_yfor_mbody_loop_iter[_yfor_mbody_loop_i], ast.With) and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'mIf')
+                                assert _yfor_mbody_loop_iter[_yfor_mbody_loop_i].__class__ == ast.With and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mIf')
                                 del _yfor_mbody_loop_iter[_yfor_mbody_loop_i]
-                                assert isinstance(_yfor_mbody_loop_iter[_yfor_mbody_loop_i], ast.With) and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'mElse')
+                                assert _yfor_mbody_loop_iter[_yfor_mbody_loop_i].__class__ == ast.With and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'mElse')
                                 del _yfor_mbody_loop_iter[_yfor_mbody_loop_i]
                                 _yfor_mbody_loop_iter[_yfor_mbody_loop_i:_yfor_mbody_loop_i] = new_body
                                 _yfor_mbody_loop_i = max(_yfor_mbody_loop_i - 2, -1)
                             elif action in ('then', 'mEval'):
-                                assert isinstance(_yfor_mbody_loop_iter[_yfor_mbody_loop_i], ast.With) and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == ('mIf' if action == 'then' else 'mEval'))
+                                assert _yfor_mbody_loop_iter[_yfor_mbody_loop_i].__class__ == ast.With and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == ('mIf' if action == 'then' else 'mEval'))
                                 del _yfor_mbody_loop_iter[_yfor_mbody_loop_i]
                                 _yfor_mbody_loop_iter[_yfor_mbody_loop_i:_yfor_mbody_loop_i] = new_body
                                 _yfor_mbody_loop_i -= 1
@@ -614,17 +687,24 @@ def with_macros(debug=False):
                         yloopsf = 0
                         while _yfor_mbody_loop_i < len(_yfor_mbody_loop_iter):
                             mbody_ast = _yfor_mbody_loop_iter[_yfor_mbody_loop_i]
-                            if any((isinstance(_yfor_mbody_loop_iter[_yfor_mbody_loop_i], ast.With) and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == unexpected) for unexpected in ('mIf', 'mElse', 'mEval'))):
+                            if any((_yfor_mbody_loop_iter[_yfor_mbody_loop_i].__class__ == ast.With and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == unexpected) for unexpected in ('mIf', 'mElse', 'mEval'))):
                                 breakpoint()
                             _yfor_mbody_loop_i += 1
                             assert _yfor_mbody_loop_i >= 0, 'u screwed up.. I mean, down, yep, up\nu screwed up!'
                         if yloopsf:
                             break
-                    if is_expression_macro:
+                    if fn__.ym_flags & YMF_expr:
                         if len(_ast) > 1:
                             raise TransformError('expression macro expanded into multiple expressions')
                         moon.replace(_ast[0].value)
+                    elif fn__.ym_flags & YMF_XMacro:
+                        assert moon.up.node.__class__ == ast.Expr, 'did you want Z(W) instead of X(Y)?'
+                        moon.up.pop_extend(moon.expanded)
+                    elif fn__.ym_flags & YMF_ZMacro:
+                        ...
                     else:
+                        if fn__.ym_flags & (YMF_expr | YMF_XMacro | YMF_YMacro | YMF_ZMacro | YMF_WMacro):
+                            raise TransformError(f'Incorrect expansion of {mname}')
                         assignments = []
                         yloopsf = 0
                         for (_yfor_l_i, _yfor_l_it) in enumerate(signature(fn__).parameters):
@@ -632,10 +712,9 @@ def with_macros(debug=False):
                                 ass = ast.Assign(targets=[ast.Name(id=mp % _yfor_l_it)], value=moon.node.args[_yfor_l_i], lineno=1)
                             except IndexError:
                                 raise TransformError(f'wrong arity {_yfor_l_i} (missing {_yfor_l_it}) in {ast.unparse(moon.node)}')
-                            if not is_expression_macro:
-                                if ass.value not in replacements:
-                                    _ast.insert(0, ass)
-                                    assignments.append(ass)
+                            if ass.value not in replacements:
+                                _ast.insert(0, ass)
+                                assignments.append(ass)
                         if yloopsf:
                             break
                         where = fn__.__code__.co_varnames if fn__.ym_flags & YMF_hygienic else signature(fn__).parameters
@@ -752,14 +831,14 @@ def with_namedloops(debug=False):
                     while up:
                         if up._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
                             break
-                        elif up._node.__class__ in (ast.For, ast.While) or (isinstance(up._node, ast.With) and isinstance((what := up._node.items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'For')) or (isinstance(up._node, ast.With) and isinstance((what := up._node.items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'While')):
+                        elif up._node.__class__ in (ast.For, ast.While) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
                             moon._loop_depth += 1
                         up = up._up
                     moon.loop_depth = max(moon.loop_depth, moon._loop_depth)
                     grab(moon.up)
                     moon.node
                     return moon
-                elif isinstance(moon._node, ast.With) and isinstance((what := moon._node.items), list) and (len(what) == 1) and isinstance((call := what[0].context_expr), ast.Call) and (call.func.id == 'For'):
+                elif moon._node.__class__ == ast.With and isinstance((what := moon._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For'):
                     moon.kind = 'For'
                     if not call.args:
                         raise TransformError('For without iterable')
@@ -826,12 +905,12 @@ def with_namedloops(debug=False):
                     while up:
                         if up._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
                             break
-                        elif up._node.__class__ in (ast.For, ast.While) or (isinstance(up._node, ast.With) and isinstance((what := up._node.items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'For')) or (isinstance(up._node, ast.With) and isinstance((what := up._node.items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'While')):
+                        elif up._node.__class__ in (ast.For, ast.While) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
                             moon._loop_depth += 1
                         up = up._up
                     moon.loop_depth = max(moon.loop_depth, moon._loop_depth)
                     return moon
-                elif isinstance(moon.node, ast.With) and isinstance((what := moon.node.items), list) and (len(what) == 1) and isinstance((call := what[0].context_expr), ast.Call) and (call.func.id == 'While'):
+                elif moon.node.__class__ == ast.With and isinstance((what := moon.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While'):
                     moon.kind = 'While'
                     if not call.args:
                         raise TransformError('While without condition')
@@ -852,7 +931,7 @@ def with_namedloops(debug=False):
                     while up:
                         if up._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
                             break
-                        elif up._node.__class__ in (ast.For, ast.While) or (isinstance(up._node, ast.With) and isinstance((what := up._node.items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'For')) or (isinstance(up._node, ast.With) and isinstance((what := up._node.items), list) and (len(what) == 1) and isinstance((_ := what[0].context_expr), ast.Call) and (_.func.id == 'While')):
+                        elif up._node.__class__ in (ast.For, ast.While) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
                             moon._loop_depth += 1
                         up = up._up
                     moon.loop_depth = max(moon.loop_depth, moon._loop_depth)
@@ -1054,7 +1133,7 @@ def with_call2comp(debug=False):
         del source
 
         def moon_filter(moon):
-            if isinstance(moon._node, ast.Call) and isinstance(moon._node.func, ast.Name) and ((fname := moon._node.func.id) in map(lambda p: ''.join(p), itertools.product(('emap', 'efilter', 'efiltermap'), ('', 'l', 'd', 's')))):
+            if moon._node.__class__ == ast.Call and (bind_fn_as := moon._node.func).__class__ == ast.Name and ((fname := bind_fn_as.id) in map(lambda p: ''.join(p), itertools.product(('emap', 'efilter', 'efiltermap'), ('', 'l', 'd', 's')))):
                 moon.fname = fname
                 yloopsf = 0
                 for _yfor_ekwdloop_it in [v for (k, v) in emap(lambda kw: (kw.arg, kw.value), moon._node.keywords) if k == 'performance_required']:
@@ -1453,11 +1532,18 @@ def backport_dict_ops(debug=False):
                         thing = 'ann' if moon.node.annotation.__class__ == ast.Name and moon.node.annotation.id in ('dict', 'Dict') or (moon.node.annotation.__class__ == ast.Subscript and moon.node.annotation.value.__class__ == ast.Name and (moon.node.annotation.value.id in ('dict', 'Dict'))) else False
                         grab.defs.append((tgt.id, thing))
                     elif moon.node.__class__ == ast.Assign:
-                        yloopsf = 0
-                        for tgt in moon.node.targets:
-                            if tgt.__class__ == ast.Name:
-                                thing = 'ass' if moon.node.value.__class__ in (ast.Dict, ast.DictComp) or (moon.node.value.__class__ == ast.Call and moon.node.value.func.__class__ == ast.Name and (moon.node.value.func.id == 'dict')) else False
-                                grab.defs.append((tgt.id, thing))
+                        if moon.node.value.__class__ == ast.Tuple and moon.node.targets[0].__class__ == ast.Tuple and (len(moon.node.value.elts) == len(moon.node.targets[0].elts)):
+                            yloopsf = 0
+                            for (tgt, val) in zip(moon.node.targets[0].elts, moon.node.value.elts):
+                                if tgt.__class__ == ast.Name:
+                                    thing = 'assuc' if val.__class__ in (ast.Dict, ast.DictComp) or (val.__class__ == ast.Call and val.func.__class__ == ast.Name and (val.func.id == 'dict')) else False
+                                    grab.defs.append((tgt.id, thing))
+                        else:
+                            yloopsf = 0
+                            for tgt in moon.node.targets:
+                                if tgt.__class__ == ast.Name:
+                                    thing = 'assus' if moon.node.value.__class__ in (ast.Dict, ast.DictComp) or (moon.node.value.__class__ == ast.Call and moon.node.value.func.__class__ == ast.Name and (moon.node.value.func.id == 'dict')) else False
+                                    grab.defs.append((tgt.id, thing))
                     elif moon.node.__class__ == ast.arg and (known_dict := (moon.node.annotation.__class__ == ast.Name and moon.node.annotation.id in ('dict', 'Dict') or (moon.node.annotation.__class__ == ast.Subscript and moon.node.annotation.value.__class__ == ast.Name and (moon.node.annotation.value.id in ('dict', 'Dict'))))):
                         thing = 'arg' if known_dict else False
                         grab.defs.append((moon.node.arg, thing))
@@ -1470,12 +1556,22 @@ def backport_dict_ops(debug=False):
                             while zenith:
                                 ymatch_0_subject = zenith.node.__class__
                                 if ymatch_0_subject == ast.Assign:
-                                    yloopsf = 0
-                                    for tgt in zenith.node.targets:
-                                        if tgt.__class__ == ast.Name:
-                                            grab.defs.append((tgt.id, 'ASS'))
-                                    if yloopsf:
-                                        break
+                                    if zenith.node.value.__class__ == ast.Tuple and zenith.node.targets[0].__class__ == ast.Tuple and (len(zenith.node.value.elts) == len(zenith.node.targets[0].elts)):
+                                        yloopsf = 0
+                                        for (tgt, val) in zip(zenith.node.targets[0].elts, zenith.node.value.elts):
+                                            if tgt.__class__ == ast.Name:
+                                                thing = 'ASSbc'
+                                                grab.defs.append((tgt.id, thing))
+                                        if yloopsf:
+                                            break
+                                    else:
+                                        yloopsf = 0
+                                        for tgt in zenith.node.targets:
+                                            if tgt.__class__ == ast.Name:
+                                                thing = 'ASSbs'
+                                                grab.defs.append((tgt.id, thing))
+                                        if yloopsf:
+                                            break
                                     break
                                 elif (ymatch_0_subject == ast.AnnAssign or ymatch_0_subject == ast.AugAssign) and (tgt := zenith.node.target).__class__ == ast.Name:
                                     grab.defs.append((tgt.id, 'Ass'))

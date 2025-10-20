@@ -25,13 +25,14 @@ if __name__ == '__main__':
 
         # False means we only want the macros in there to be defined
         paths = (
+            ('yeastr/shared.ypy', False),
+            ('yeastr/yam.ypy', False),
             ('yeastr/utils.py', True),
             ('yeastr/minimal_runtime.py', True),
-            ('yeastr/shared.ypy', True),
             ('yeastr/impl_macros.pyy', True),
-            ('yeastr/impl_namedloops.pyy', True),
+            ('yeastr/impl_namedloops.pyy', False),
             ('yeastr/impl_call2comp.pyy', False),
-            ('yeastr/backport_fstring_backslash.pyy', True),
+            ('yeastr/backport_fstring_backslash.pyy', False),
             ('yeastr/backport_match.pyy', False),
             ('yeastr/backport_dict_ops.pyy', False),
             ('yeastr/build_time_transformer.pyy', True),
@@ -62,7 +63,10 @@ if __name__ == '__main__':
         with open(bootstrapped + 'new', 'w') as out:
             for path, amalgamate in paths:
                 with open(path, 'r') as in_:
-                    out.write(f'# Amalgamating from {path}\n')
+                    out.write(f'# {
+                            "Amalgamating" if amalgamate else "Getting macros"
+                        } from {path}\n'
+                    )
                     ying = BuildTimeTransformer(
                         in_.read(),
                         pep425,

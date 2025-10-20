@@ -2,7 +2,9 @@
 
 As long as it's obvious, at least we try not to do wrong transformations
 
-since you can define __or__ and __ior__ we are looking for type hinting
+There's no support from us for __or__ and __ior__
+
+We are looking for type hinting dict and Dict, but not Mapping
 and dict-constructors|dict-literals|dict-comprehensions
 
 So both the terms must be known (and scoped properly) to apply the transformation
@@ -12,9 +14,12 @@ that is then like ``a |= b` -> `a = {**a, **b}``
 Our type hinting understanding doesn't span files or 'runtime typing aliases'
 nor inheritance
 
+This one is pretty complex already and just can't improve much...
 
-TODO: eww, shouldn't be limited to names
-TODO: also support NamedExpr
+NOTTODO: eww, shouldn't be limited to names  <- almost impossible?
+(you would need to inspect __setattr__ __setitem__ and everything else)
+
+TODO: also support NamedExpr <- if you want to contribute
 """
 
 @def_macro(expr=True)
@@ -27,13 +32,35 @@ def is_dict_annotation():
            and moon.node.annotation.value.id in ('dict', 'Dict')
     ))
 
-@def_macro(expr=True)
-def is_dict_constructor(node):
-    (
-        node.__class__ == ast.Call
-        and node.func.__class__ == ast.Name
-        and node.func.id == 'dict'
-    )
+
+@def_macro(mLang=True, brave=False)
+def maybe_grab_assign(yr_moon):
+    if (  # like a, b = c, d
+        moon.node.value.__class__ == ast.Tuple
+        and moon.node.targets[0].__class__ == ast.Tuple
+        and len(moon.node.value.elts) == len(moon.node.targets[0].elts)
+    ):
+        for tgt, val in zip(moon.node.targets[0].elts, moon.node.value.elts):
+            if tgt.__class__ == ast.Name:
+                with mIf(brave):
+                    thing = 'ASSbc'
+                with mElse():
+                    thing = 'assuc' if \
+                        val.__class__ in (ast.Dict, ast.DictComp)\
+                        or yam_dict_constructor(val) \
+                    else False
+                grab.defs.append((tgt.id, thing))
+    else:  # like a, b = c
+        for tgt in moon.node.targets:
+            if tgt.__class__ == ast.Name:
+                with mIf(brave):
+                    thing = 'ASSbs'
+                with mElse():
+                    thing = 'assus' if \
+                        moon.node.value.__class__ in (ast.Dict, ast.DictComp)\
+                        or yam_dict_constructor(moon.node.value) \
+                    else False
+                grab.defs.append((tgt.id, thing))
 
 @def_macro
 def backport_dict_ops_impl(yr_ast_tree):
@@ -51,17 +78,8 @@ def backport_dict_ops_impl(yr_ast_tree):
             ):
                 thing = 'ann' if is_dict_annotation() else False
                 grab.defs.append((tgt.id, thing))
-
-            elif (
-                moon.node.__class__ == ast.Assign
-            ):
-                for tgt in moon.node.targets:
-                    if tgt.__class__ == ast.Name:
-                        thing = 'ass' if \
-                            moon.node.value.__class__ in (ast.Dict, ast.DictComp)\
-                            or is_dict_constructor(moon.node.value) \
-                        else False
-                        grab.defs.append((tgt.id, thing))
+            elif moon.node.__class__ == ast.Assign:
+                maybe_grab_assign(moon, brave=False)
             elif (
                 moon.node.__class__ == ast.arg
                 and (known_dict := is_dict_annotation())
@@ -78,7 +96,7 @@ def backport_dict_ops_impl(yr_ast_tree):
                           )
                         )
                         or left.__class__ in (ast.Dict, ast.DictComp)
-                        or is_dict_constructor(left)
+                        or yam_dict_constructor(left)
                         # what if left is BinOp too??
                         # nope, you must go further in the tree.
                         #or ( left.__class__ == ast.BinOp
@@ -88,7 +106,7 @@ def backport_dict_ops_impl(yr_ast_tree):
                         ((right := moon.up.node.right).__class__ == ast.Name
                           and grab_last_name(right.id, grab))
                         or right.__class__ in (ast.Dict, ast.DictComp)
-                        or is_dict_constructor(right)
+                        or yam_dict_constructor(right)
                     )
                 ):
                     elts = (left, right)
@@ -97,9 +115,7 @@ def backport_dict_ops_impl(yr_ast_tree):
                     while zenith:
                         match zenith.node.__class__:
                             case ast.Assign:
-                                for tgt in zenith.node.targets:
-                                    if tgt.__class__ == ast.Name:
-                                        grab.defs.append((tgt.id, 'ASS'))
+                                maybe_grab_assign(zenith, brave=True)
                                 break
                             case ast.AnnAssign | ast.AugAssign\
                                 if (tgt := zenith.node.target).__class__ == ast.Name:
@@ -131,7 +147,7 @@ def backport_dict_ops_impl(yr_ast_tree):
                         ((right := moon.up.node.value).__class__ == ast.Name
                           and grab_last_name(right.id, grab))
                         or right.__class__ in (ast.Dict, ast.DictComp)
-                        or is_dict_constructor(right)
+                        or yam_dict_constructor(right)
                     ):
                         moon.up.elts = (left, right)
                         grab(moon.up.up)

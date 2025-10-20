@@ -1,4 +1,8 @@
-@def_macro()
+@def_macro(expr=True)
+def get_arg0_id(call):
+    len(call.args) > 0 and call.args[0].__class__ == ast.Name and call.args[0].id
+
+@def_macro
 def get_macro_arguments(node: ast.FunctionDef):
     assert not node.args.defaults, 'macro cannot have defaults, put kwargs on def_macro itself'
     args = node.args.args
@@ -9,6 +13,7 @@ def get_macro_arguments(node: ast.FunctionDef):
         and isinstance(call.func, ast.Name)
         and call.func.id == 'def_macro'
     ][0]
+    marg0 = get_arg0_id(call)
     kwargs = {k.arg: mLang_conv(k.value) for k in call.keywords}
     strip = (
         'strip_def'    # strip the macro definition
@@ -20,9 +25,18 @@ def get_macro_arguments(node: ast.FunctionDef):
         flags |= YMF_hygienic
     if kwargs.get('mLang', False):
         flags |= YMF_mLang
-    if kwargs.get('expr', False):
+
+    if kwargs.get('expr', False) or 'E' == marg0:
         flags |= YMF_expr
-    assert not (flags & YMF_expr and flags & YMF_hygienic), "just doesn't make sense"
+    elif kwargs.get('XMacro', False) or 'X' == marg0:
+        flags |= YMF_XMacro
+    elif kwargs.get('YMacro', False) or 'Y' == marg0:
+        flags |= YMF_YMacro
+    elif kwargs.get('ZMacro', False) or 'Z' == marg0:
+        flags |= YMF_ZMacro
+    elif kwargs.get('WMacro', False) or 'W' == marg0:
+        flags |= YMF_WMacro
+    assert not (flags & YMF_expr and flags & YMF_hygienic), "just doesn't make sense... it does but wait..."
 
 
 @def_macro()
@@ -32,7 +46,7 @@ def prepare_macro():
     assert len(mnode.decorator_list) == 1, 'TODO: What to do with other decorators?'
     mnode.decorator_list = []
     _here = {'ast': ast}  # please, don't add type hints to macros... (py3.8 compat)
-    exec(  # executing the fn definition, allowing decorators leads to RCE
+    exec(  # executing the fn definition, allowing decorators leads to Random CE
         compile(ast.unparse(mnode), f'_m_{tln.name}.py', 'exec'),
         _here
     )

@@ -1,10 +1,3 @@
-@def_macro(expr=True)
-def yam_call_names(ast_node, names, bind_as):
-    (
-        isinstance(ast_node, ast.Call)
-        and isinstance(ast_node.func, ast.Name)
-        and (bind_as := ast_node.func.id) in names
-    )
 
 @def_macro()
 def with_call2comp_impl(yr_ast_tree):
@@ -17,6 +10,7 @@ def with_call2comp_impl(yr_ast_tree):
                 itertools.product(('emap', 'efilter', 'efiltermap'),
                                   ('', 'l', 'd', 's'))),
             fname,
+            _,
         ):
             moon.fname = fname
             with For(v in efiltermap(lambda k, v: k == 'performance_required',

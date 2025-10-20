@@ -1,0 +1,120 @@
+"""Yeastr Ast Match
+
+Predicates to test ast nodes
+
+.. warning:: Still unstable, "Adding as needed". Expect changes
+
+..note:: Eventually changes would go into _vX suffix
+"""
+
+@def_macro(expr=True)
+def yam_module_docstring(ast_module):
+    (
+        ast_module.__class__ == ast.Module
+        and ast_module.body[0].__class__ == ast.Expr
+        and ast_module.body[0].value.__class__ == ast.Constant
+        and ast_module.body[0].value.value == str
+    )
+
+@def_macro(expr=True)
+def yam_future_import(ast_node):
+    (
+        ast_node.__class__ == ast.ImportFrom
+        and ast_node.module == '__future__'
+    )
+
+@def_macro(expr=True)
+def yam_expr_name(node, as_name, as_str):
+    (
+        node.__class__ == ast.Expr
+        and (as_name := node.value).__class__ == ast.Name
+        and (as_str := as_name.id)
+    )
+
+@def_macro(expr=True)
+def yam_name(node, name):
+    """Yeastr Ast Match: expr predicate:
+
+    Match a name regardless of context
+    """
+    node.__class__ == ast.Name and node.id == name
+
+
+@def_macro(expr=True)
+def yam_with_call_name(node, call, name):
+    """Yeastr Ast Match: expr predicate:
+
+    Example: :code:`yam_with_call_name(ast_node, call, 'mElse')`
+
+    Will match if ast_node would unparse like :code:`with mElse():`
+
+    And, will bind a variable named 'call'
+
+    And another one called literally 'what' (you can grab `as name` from)
+
+    :param node: to test
+    :type node: ast.AST
+    :param call: a python name to be bound
+    :type: call: object
+    :param name: to test
+    :type name: str
+    """
+    (
+        node.__class__ == ast.With
+        and isinstance((what := node.items), list)
+        and len(what) == 1
+        and (call := what[0].context_expr).__class__ == ast.Call
+        and call.func.id == name
+    )
+
+
+@def_macro(expr=True)
+def yam_call_name(ast_node, name):
+    """
+    Yeastr Ast Match: expr predicate:
+
+    :param ast_node: to test
+    :type ast_node: ast.AST
+
+    :param name: name to match
+    :type name: str
+    """
+    (
+        ast_node.__class__ ==  ast.Call
+        and ast_node.func.__class__ ==  ast.Name
+        and ast_node.func.id == name
+    )
+
+
+@def_macro(expr=True)
+def yam_call_names(ast_node, names, bind_name_as, bind_fn_as):
+    """
+    Yeastr Ast Match: expr predicate:
+
+    :param names: to search for
+    :type names: Iterable[str]
+
+    :param bind_name_as: variable name where to store the function name
+    :type bind_name_as: str
+
+    :param bind_fn_as: variable name where to store the function itself
+    :type bind_fn_as: ast.Call
+
+    .. versionchanged:: 0.0.2
+
+        Added bind_fn_as
+    """
+    (
+        ast_node.__class__ == ast.Call
+        and (bind_fn_as := ast_node.func).__class__ == ast.Name
+        and (bind_name_as := bind_fn_as.id) in names
+    )
+
+@def_macro(expr=True)
+def yam_dict_constructor(node):
+    """Match calls to dict"""
+    (
+        node.__class__ == ast.Call
+        and node.func.__class__ == ast.Name
+        and node.func.id == 'dict'
+    )

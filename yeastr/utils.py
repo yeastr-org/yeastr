@@ -243,6 +243,8 @@ def ast_copy(ast_node):
     """deepcopy of :class:`ast.AST` tree, just faster"""
     if ast_node.__class__ == list:
         return [ast_copy(ast_item) for ast_item in ast_node]
+    elif ast_node.__class__ == str:  # ast.Nonlocal
+        return ast_node
     elif ast_node is None:
         return None
     _fields = ast_node._fields
@@ -260,26 +262,11 @@ def ast_copy(ast_node):
         for field in _fields
     })
 
-@def_macro(expr=True)
-def yam_module_docstring(ast_module):
-    (
-        ast_module.__class__ == ast.Module
-        and ast_module.body[0].__class__ == ast.Expr
-        and ast_module.body[0].value.__class__ == ast.Constant
-        and ast_module.body[0].value.value == str
-    )
-
-@def_macro(expr=True)
-def yam_module_future_import(ast_node):
-    (
-        ast_node.__class__ == ast.ImportFrom
-        and ast_node.module == '__future__'
-    )
 
 @def_macro
 def module_future_imports_count(ast_module, yr_counter):
     counter = 1 if yam_module_docstring(ast_module) else 0
-    while yam_module_future_import(ast_module.body[counter]):
+    while yam_future_import(ast_module.body[counter]):
         counter += 1
 
 def add_at_the_module_beginning(ast_module, ast_node):
@@ -297,17 +284,39 @@ def strip_module_docstring(ast_module):
     ):
         ast_module.body.pop(0)
 
+def strip_docstring(_ast):
+    if (
+        _ast[0].__class__ == ast.Expr
+        and _ast[0].value.__class__ == ast.Constant
+        and _ast[0].value.value.__class__ == str
+    ):
+        _ast.pop(0)  # skip the docstring
+
 
 class TransformError(BaseException): ...
 
 
 YMF_hygienic = 1 << 0
-YMF_mLang =    1 << 1
-YMF_expr =     1 << 2
+YMF_mLang    = 1 << 1
+YMF_expr     = 1 << 2
+YMF_XMacro   = 1 << 3
+YMF_YMacro   = 1 << 4
+YMF_ZMacro   = 1 << 5
+YMF_WMacro   = 1 << 6
 
 
 # You must always use @def_macro() when not using the BuildTimeTransformer
-def def_macro(*args, hygienic=False, mLang=False, expr=False, **kwargs):
+def def_macro(
+    *args,
+    hygienic=False,
+    mLang=False,
+    expr=False,
+    XMacro=False,
+    YMacro=False,
+    ZMacro=False,
+    WMacro=False,
+    **kwargs
+):
     """@def_macro() decorator for JIT macros only"""
     def _def_macro(fn):
         nonlocal args
@@ -319,6 +328,14 @@ def def_macro(*args, hygienic=False, mLang=False, expr=False, **kwargs):
             flags |= YMF_mLang
         if expr:
             flags |= YMF_expr
+        if XMacro:
+            flags |= YMF_XMacro
+        if YMacro:
+            flags |= YMF_YMacro
+        if ZMacro:
+            flags |= YMF_ZMacro
+        if WMacro:
+            flags |= YMF_WMacro
         _macros.add(fn, flags, args, kwargs)
         return fn
     return _def_macro
