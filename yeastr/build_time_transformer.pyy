@@ -2,6 +2,7 @@
 def get_arg0_id(call):
     len(call.args) > 0 and call.args[0].__class__ == ast.Name and call.args[0].id
 
+
 @def_macro
 def get_macro_arguments(node: ast.FunctionDef):
     assert not node.args.defaults, 'macro cannot have defaults, put kwargs on def_macro itself'
@@ -39,7 +40,17 @@ def get_macro_arguments(node: ast.FunctionDef):
     assert not (flags & YMF_expr and flags & YMF_hygienic), "just doesn't make sense... it does but wait..."
 
 
-@def_macro()
+@def_macro
+def strip_macro_docstring(_ast):
+    if (
+        _ast[0].__class__ == ast.Expr
+        and _ast[0].value.__class__ == ast.Constant
+        and _ast[0].value.value.__class__ == str
+    ):
+        _ast.pop(0)  # skip the docstring
+
+
+@def_macro
 def prepare_macro():
     mnode = ast_copy(tln)
     # this one assert... tell me if you crash upon this
@@ -50,24 +61,18 @@ def prepare_macro():
         compile(ast.unparse(mnode), f'_m_{tln.name}.py', 'exec'),
         _here
     )
+    strip_macro_docstring(macro_ast)
     if flags & YMF_expr and not flags & YMF_mLang and len(macro_ast) > 1:
-        if (
-            macro_ast[0].__class__ == ast.Expr
-            and macro_ast[0].value.__class__ == ast.Constant
-            and (docst := macro_ast[0].value.value)
-        ):
-            assert len(macro_ast) == 2, 'Bad macro'
-            macro_ast = macro_ast[1:]
-        else:
-            assert False, "You're using it wrong. (TODO: Provide explainations)"
+        assert False, "You're using it wrong. (TODO: Provide explainations)"
     macros.add_ast(_here[tln.name], tln.name, macro_ast, flags, args, kwargs)
 
 
-@def_macro()
+@def_macro
 def def_macro_impl():
+    # def def_macro(): ...  hopefully helps grep
+    # class def_macro: ...  hopefully helps grep
     with For(tln in self.ast.body, indexed=True) as def_macro_stage:
         if 'decorator_list' in tln._fields:
-            # def def_macro(...  hopefully helps grep
             if 'def_macro' in (
                 dec.func.id if dec_call else dec.id
                 for dec in tln.decorator_list
@@ -132,7 +137,7 @@ def additionally():
                 body=[ast.ImportFrom(
                     module=self.autoimport,
                     names=[ast.alias(name='*')],
-                    level=0.
+                    level=0,
                 )],
             )],
             orelse=[],

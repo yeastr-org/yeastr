@@ -256,11 +256,7 @@ def add_at_the_module_beginning(ast_module, ast_node):
 def strip_module_docstring(ast_module):
     assert ast_module.__class__ == ast.Module
     if (ex := ast_module.body[0]).__class__ == ast.Expr and ex.value.__class__ == ast.Constant and (ex.value.value.__class__ == str):
-        ast_module.body.pop(0)
-
-def strip_docstring(_ast):
-    if _ast[0].__class__ == ast.Expr and _ast[0].value.__class__ == ast.Constant and (_ast[0].value.value.__class__ == str):
-        _ast.pop(0)
+        return ast_module.body.pop(0)
 
 class TransformError(BaseException):
     ...
@@ -298,7 +294,7 @@ def def_macro(*args, hygienic=False, mLang=False, expr=False, XMacro=False, YMac
     return _def_macro
 
 def mLang_conv(_ast):
-    """JIT macro conversion step for mLang"""
+    """macro parameters conversion step for mLang"""
     if isinstance(_ast, ast.Constant):
         return _ast.value
     elif isinstance(_ast, ast.UnaryOp) and isinstance(_ast.op, ast.USub):
@@ -394,15 +390,6 @@ except ImportError:
 def with_macros(debug=False):
 
     def _with_macros(fn):
-        """Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`
-
-    Expects :code:`fn` to have a _source attribute or a function object
-
-    :param del_source: False to debug
-    :type del_source: bool
-
-    Also used for JIT macros
-    """
         if hasattr(fn, '_source'):
             source = fn._source
         else:
@@ -427,14 +414,12 @@ def with_macros(debug=False):
         ymacro_never_defer = True
         ymacro_some_ast = _fn
         ymacro_macros_ = _macros
-        'Entry Point, expands a bunch of macros grouped by depth'
         mp = 'ymacro_%s'
         deferred_macroe = []
         with MoonGrabber() as macro_keepalive:
 
             def filter_macro_moons(moon):
                 ymacro__macros = ymacro_macros_
-                'Overwrites :code:`needs_expansion` and :code:`retrieved`\n\n    :param _macros: the _macros singleton...\n    :type _macros: Macros\n    :param node: check this node is a known macro call\n    :type node: ast.AST\n    '
                 needs_expansion = moon.node.__class__ == ast.Call and moon.node.func.__class__ in (ast.Name, ast.Attribute) and (moon.node not in deferred_macroe) and ((retrieved := ymacro__macros.retrieve(moon.node.func)) is not None)
                 if needs_expansion:
                     moon.retrieved = retrieved
@@ -454,7 +439,6 @@ def with_macros(debug=False):
                     moon = _yfor_macroexpansionloop_it
                     retrieved = moon.retrieved
                     ymacro__macros = ymacro_macros_
-                    'One round of macro expansion'
                     (mname, fn__, _ast) = retrieved
                     _yfor_kwdloop_iter = moon.node.keywords
                     _yfor_kwdloop_end = len(_yfor_kwdloop_iter)
@@ -475,7 +459,6 @@ def with_macros(debug=False):
                     elif yloopsf:
                         break
                     if fn__.ym_flags & YMF_XMacro:
-                        strip_docstring(_ast)
                         if fn__.ym_flags & YMF_hygienic:
                             assert all((p is None for p in where)), 'incompatibilities?'
                         if fn__.ym_flags & YMF_mLang:
@@ -486,20 +469,17 @@ def with_macros(debug=False):
                         assert xYfn.ym_flags & YMF_YMacro
                         if xYfn.ym_flags & YMF_mLang:
                             raise NotImplementedError('Y Macro with mLang')
-                        strip_docstring(xYast)
                         ym_params = list(signature(xYfn).parameters.keys())
                         ym_quoted = [f'{p}_quoted' for p in ym_params]
                         moon.expanded = []
                         with MoonGrabber() as keepalive:
 
                             def moon_filter(moon):
-                                if moon._node.__class__ == ast.Name and ((fpname := (moon._node.id in ym_params)) or moon._node.id in ym_quoted):
+                                if moon.node.__class__ == ast.Name and ((fpname := (moon.node.id in ym_params)) or moon.node.id in ym_quoted):
                                     moon.argname = moon._node.id
                                     moon.suffix = ''
                                     if not fpname:
                                         moon.suffix = '_quoted'
-                                    else:
-                                        moon.suffix = '_token'
                                     keepalive(moon.up)
                                     return moon
                             yloopsf = 0
@@ -520,19 +500,64 @@ def with_macros(debug=False):
                             if yloopsf:
                                 break
                     elif fn__.ym_flags & YMF_ZMacro:
-                        strip_docstring(_ast)
-                        if fn__.ym_flags & YMF_hygienic:
-                            assert all((p is None for p in where)), 'incompatibilities?'
-                        assert len(moon.node.args) == 2, 'mismatching ZMacro(XMacro, WMacro) arity'
                         assert moon.node.args[0].__class__ == ast.Name, 'bad ZMacro 1st param, must be XMacro'
                         assert moon.node.args[1].__class__ == ast.Name, 'bad ZMacro 2nd param, must be WMacro'
-                        (zXname, zXfn, zXast) = ymacro__macros.retrieve(moon.node.args[0])
-                        (zWname, zWfn, zWast) = ymacro__macros.retrieve(moon.node.args[1])
-                        strip_docstring(zXast)
-                        strip_docstring(zWast)
-                        ...
+                        if fn__.ym_flags & YMF_hygienic:
+                            raise NotImplementedError('Z Macro with hygienic')
+                        if fn__.ym_flags & YMF_mLang:
+                            raise NotImplementedError('Z Macro with mLang')
+                        z_params = list(signature(fn__).parameters.keys())
+                        if len(moon.node.args) != 2:
+                            raise NotImplementedError('Z(X, Y) macro, check arity')
+                        if any((arg.__class__ != ast.Name for arg in moon.node.args)):
+                            raise NotImplementedError('Z args must be static known names')
+                        (zXname, zXfn, zXast) = _macros.retrieve(moon.node.args[0])
+                        assert zXfn.ym_flags & YMF_XMacro
+                        if zXfn.ym_flags & YMF_mLang:
+                            raise NotImplementedError('X Macro with mLang')
+                        (zWname, zWfn, zWast) = _macros.retrieve(moon.node.args[1])
+                        assert zWfn.ym_flags & YMF_WMacro
+                        if zWfn.ym_flags & YMF_mLang:
+                            raise NotImplementedError('W Macro with mLang')
+                        with MoonGrabber() as keepalive:
+
+                            def moon_filter(zmoon):
+                                if zmoon.node.__class__ == ast.Name and zmoon.node.id in z_params:
+                                    zmoon.param_i = z_params.index(zmoon.node.id)
+                                    keepalive(zmoon.up)
+                                    return zmoon
+
+                            def moon_walk(moonwalker):
+                                yloopsf = 0
+                                for _n in moonwalker.tree:
+                                    if _n.param_i == 0:
+                                        _n.replace(ast.Tuple(elts=[x.value for x in zXast]))
+                                    else:
+                                        _n.node.id = moon.node.args[_n.param_i].id
+                                return True
+                            yloopsf = 0
+                            for ast__ in _ast:
+                                MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
+                            if yloopsf:
+                                break
+                    elif fn__.ym_flags & YMF_WMacro:
+                        w_params = list(signature(fn__).parameters.keys())
+                        if len(w_params) > 1:
+                            raise NotImplementedError('W macro with n-arity')
+                        assert moon.node.args[0].__class__ == ast.Name, 'bad W Macro 1st param, must be ast.Name'
+                        with MoonGrabber() as keepalive:
+
+                            def moon_filter(moon):
+                                if moon.node.__class__ == ast.Name and moon.node.id in w_params:
+                                    moon.argname = moon._node.id
+                                    keepalive(moon.up)
+                                    return moon
+                            yloopsf = 0
+                            for _yfor_wmoons_it in MoonWalking(_ast[0], filter_cb=moon_filter).tree:
+                                _yfor_wmoons_it.replace(ast.Name(moon.node.args[0].id, ctx=_yfor_wmoons_it.node.ctx))
+                            if yloopsf:
+                                break
                     elif fn__.ym_flags & YMF_expr:
-                        strip_docstring(_ast)
                         formal_params = list(signature(fn__).parameters.keys())
                         with MoonGrabber() as keepalive:
 
@@ -578,7 +603,6 @@ def with_macros(debug=False):
                             if yloopsf:
                                 break
                     if fn__.ym_flags & YMF_mLang:
-                        'Conditional macro expansion and maybe constexpr'
                         mglobals = {'ast': ast, '__builtins__': restricted_builtins}
                         mEval_ctx = {'__builtins__': restricted_builtins}
                         ymacrokw = fn__.ymacrokw
@@ -611,7 +635,6 @@ def with_macros(debug=False):
                                             (action, new_body) = perform(subnode, _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i + 1])
                                         except IndexError:
                                             (action, new_body) = perform(subnode)
-                                        "Macro expansion body logics\n\n    :param loop: a loop label\n    :type loop: there's no Loop type\n    :param hint: debug parameter for unknown actions\n    :type hint: Any\n    "
                                         if action is None:
                                             ...
                                         elif action == 'skip':
@@ -656,7 +679,6 @@ def with_macros(debug=False):
                             except IndexError:
                                 (action, new_body) = perform(mbody_ast)
                             assert action != 'mEval', 'unexpected mEval at top'
-                            "Macro expansion body logics\n\n    :param loop: a loop label\n    :type loop: there's no Loop type\n    :param hint: debug parameter for unknown actions\n    :type hint: Any\n    "
                             if action is None:
                                 ...
                             elif action == 'skip':
@@ -695,13 +717,19 @@ def with_macros(debug=False):
                             break
                     if fn__.ym_flags & YMF_expr:
                         if len(_ast) > 1:
-                            raise TransformError('expression macro expanded into multiple expressions')
+                            raise TransformError(f"{'expression'} macro expanded into multiple expressions")
                         moon.replace(_ast[0].value)
                     elif fn__.ym_flags & YMF_XMacro:
                         assert moon.up.node.__class__ == ast.Expr, 'did you want Z(W) instead of X(Y)?'
                         moon.up.pop_extend(moon.expanded)
                     elif fn__.ym_flags & YMF_ZMacro:
-                        ...
+                        if len(_ast) > 1:
+                            raise TransformError(f"{'Z'} macro expanded into multiple expressions")
+                        moon.replace(_ast[0].value)
+                    elif fn__.ym_flags & YMF_WMacro:
+                        if len(_ast) > 1:
+                            raise TransformError(f"{'W'} macro expanded into multiple expressions")
+                        moon.replace(_ast[0].value)
                     else:
                         if fn__.ym_flags & (YMF_expr | YMF_XMacro | YMF_YMacro | YMF_ZMacro | YMF_WMacro):
                             raise TransformError(f'Incorrect expansion of {mname}')
@@ -739,7 +767,6 @@ def with_macros(debug=False):
                 macro_keepalive.reset()
                 macro_moons = list(MoonWalking(ymacro_some_ast, filter_cb=filter_macro_moons).tree)
                 depth_counter += 1
-        'Unparses :code:`_fn: ast.AST` and executes it\n\n    Then stores the function source in the function object\n\n    This is where you can start thinking in a macropy way\n    '
         _source = ast.unparse(_fn)
         file_name_ = '_.py'
         if debug:
@@ -760,15 +787,6 @@ def with_macros(debug=False):
 def with_namedloops(debug=False):
 
     def _with_namedloops(fn):
-        """Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`
-
-    Expects :code:`fn` to have a _source attribute or a function object
-
-    :param del_source: False to debug
-    :type del_source: bool
-
-    Also used for JIT macros
-    """
         if hasattr(fn, '_source'):
             source = fn._source
         else:
@@ -1080,7 +1098,6 @@ def with_namedloops(debug=False):
                 elif True:
                     raise NotImplementedError(f'new kind {moon.kind}')
         del grab
-        'Unparses :code:`_fn: ast.AST` and executes it\n\n    Then stores the function source in the function object\n\n    This is where you can start thinking in a macropy way\n    '
         _source = ast.unparse(_fn)
         file_name_ = '_.py'
         if debug:
@@ -1101,15 +1118,6 @@ def with_namedloops(debug=False):
 def with_call2comp(debug=False):
 
     def _with_call2comp(fn):
-        """Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`
-
-    Expects :code:`fn` to have a _source attribute or a function object
-
-    :param del_source: False to debug
-    :type del_source: bool
-
-    Also used for JIT macros
-    """
         if hasattr(fn, '_source'):
             source = fn._source
         else:
@@ -1215,7 +1223,6 @@ def with_call2comp(debug=False):
                 moon.node.keywords = []
             elif True:
                 raise NotImplementedError(f'{moon.fname}')
-        'Unparses :code:`_fn: ast.AST` and executes it\n\n    Then stores the function source in the function object\n\n    This is where you can start thinking in a macropy way\n    '
         _source = ast.unparse(_fn)
         file_name_ = '_.py'
         if debug:
@@ -1239,15 +1246,6 @@ def backport_fstring_backslash(debug=False):
     if version_info >= (3, 12):
 
         def _backport_fstring_backslash(fn):
-            """Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`
-
-    Expects :code:`fn` to have a _source attribute or a function object
-
-    :param del_source: False to debug
-    :type del_source: bool
-
-    Also used for JIT macros
-    """
             if hasattr(fn, '_source'):
                 source = fn._source
             else:
@@ -1314,7 +1312,6 @@ def backport_fstring_backslash(debug=False):
             yloopsf = 0
             for varname in sorted(backported_fstring):
                 add_at_the_module_beginning(_fn, ast.Assign(targets=[ast.Name(varname, context=ast.Store())], value=ast.Constant(chr(int(varname[len('_bfb_'):-2], 16))), lineno=1))
-            'Unparses :code:`_fn: ast.AST` and executes it\n\n    Then stores the function source in the function object\n\n    This is where you can start thinking in a macropy way\n    '
             _source = ast.unparse(_fn)
             file_name_ = '_.py'
             if debug:
@@ -1338,15 +1335,6 @@ def backport_match(debug=False, custom_globals={}):
     if version_info >= (3, 10):
 
         def _backport_match(fn):
-            """Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`
-
-    Expects :code:`fn` to have a _source attribute or a function object
-
-    :param del_source: False to debug
-    :type del_source: bool
-
-    Also used for JIT macros
-    """
             if hasattr(fn, '_source'):
                 source = fn._source
             else:
@@ -1459,7 +1447,6 @@ def backport_match(debug=False, custom_globals={}):
                     break
                 moon.pop_extend(new_body)
                 match_counter += 1
-            'Unparses :code:`_fn: ast.AST` and executes it\n\n    Then stores the function source in the function object\n\n    This is where you can start thinking in a macropy way\n    '
             _source = ast.unparse(_fn)
             file_name_ = '_.py'
             if debug:
@@ -1487,15 +1474,6 @@ def backport_dict_ops(debug=False):
     if version_info >= (3, 9):
 
         def _backport_dict_ops(fn):
-            """Gets python text from :code:`fn: object` and parses it into :code:`_fn: ast.Module`
-
-    Expects :code:`fn` to have a _source attribute or a function object
-
-    :param del_source: False to debug
-    :type del_source: bool
-
-    Also used for JIT macros
-    """
             if hasattr(fn, '_source'):
                 source = fn._source
             else:
@@ -1646,7 +1624,6 @@ def backport_dict_ops(debug=False):
                     else:
                         breakpoint()
             del grab
-            'Unparses :code:`_fn: ast.AST` and executes it\n\n    Then stores the function source in the function object\n\n    This is where you can start thinking in a macropy way\n    '
             _source = ast.unparse(_fn)
             file_name_ = '_.py'
             if debug:

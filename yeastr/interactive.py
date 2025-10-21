@@ -4,7 +4,6 @@ to get into the REPL
 """
 # Important: add things to this module, as they will end up in the REPL's
 # default globals.
-from packaging.tags import interpreter_version
 import sys
 import traceback
 
@@ -25,6 +24,7 @@ except ImportError:
         USE_PYREPL = False
 
 YEASTR_DEBUG = True
+target_version = 'py38-none-any'
 
 if __name__ == "__main__" and USE_PYREPL == 'stdlib':
     from _pyrepl.main import interactive_console as __pyrepl_interactive_console
@@ -34,7 +34,7 @@ if __name__ == "__main__" and USE_PYREPL == 'stdlib':
             try:
                 _yeastr_btt = BuildTimeTransformer(
                     source,
-                    f'py{interpreter_version()}-interactive',
+                    target_version,
                     autoimport=False,
                 )
                 source = _yeastr_btt.yang(_macros)
@@ -54,7 +54,7 @@ elif __name__ == "__main__" and USE_PYREPL == 'dep':
             try:
                 _yeastr_btt = BuildTimeTransformer(
                     source,
-                    f'py{interpreter_version()}-interactive',
+                    target_version,
                 )
                 source = _yeastr_btt.yang(_macros)
             except BaseException as exc:

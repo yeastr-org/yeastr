@@ -16,11 +16,28 @@ nor inheritance
 
 This one is pretty complex already and just can't improve much...
 
+So... current usage might look like
+
+.. code-block:: python
+
+    a_ref: dict = someobj.dict_a
+    a_ref.update({'same_id': True} | more_dicts)
+
+    a_ref |= {'same_id': False}
+    someobj.dict_a = a_ref  # maybe, update is a better choice
+
+
+
 NOTTODO: eww, shouldn't be limited to names  <- almost impossible?
 (you would need to inspect __setattr__ __setitem__ and everything else)
 
-TODO: also support NamedExpr <- if you want to contribute
+TODO: also support NamedExpr <- consider the whole thing broken until that is done.
+
 """
+
+# TODO: change grab.defs into a dict, has no reason to be linear search and double mem usage)
+# TODO: change grab.defs[1] into some enumeration
+
 
 @def_macro(expr=True)
 def is_dict_annotation():

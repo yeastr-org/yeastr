@@ -35,6 +35,8 @@ class Moon:
     Store temporary Moons with :class:`MoonGrabber`
     """
     def __init__(self, node, parent=None, field=None, position=None):
+        # TypeError: cannot create weak reference to 'list' object
+        # here probably means you are building a bad tree
         self._node_ref = weakref.ref(node)
         self._node = weakref.proxy(node)
         if parent:
@@ -243,7 +245,7 @@ def ast_copy(ast_node):
     """deepcopy of :class:`ast.AST` tree, just faster"""
     if ast_node.__class__ == list:
         return [ast_copy(ast_item) for ast_item in ast_node]
-    elif ast_node.__class__ == str:  # ast.Nonlocal
+    elif ast_node.__class__ == str:  # ast.Nonlocal/ast.Global
         return ast_node
     elif ast_node is None:
         return None
@@ -263,6 +265,7 @@ def ast_copy(ast_node):
     })
 
 
+# TODO: MOVE THESE two out of here!!
 @def_macro
 def module_future_imports_count(ast_module, yr_counter):
     counter = 1 if yam_module_docstring(ast_module) else 0
@@ -282,15 +285,7 @@ def strip_module_docstring(ast_module):
         and ex.value.__class__ == ast.Constant
         and ex.value.value.__class__ == str
     ):
-        ast_module.body.pop(0)
-
-def strip_docstring(_ast):
-    if (
-        _ast[0].__class__ == ast.Expr
-        and _ast[0].value.__class__ == ast.Constant
-        and _ast[0].value.value.__class__ == str
-    ):
-        _ast.pop(0)  # skip the docstring
+        return ast_module.body.pop(0)
 
 
 class TransformError(BaseException): ...
@@ -342,7 +337,7 @@ def def_macro(
 
 
 def mLang_conv(_ast):
-    """JIT macro conversion step for mLang"""
+    """macro parameters conversion step for mLang"""
     # TODO: isn't just literal_eval but more limited?
     if isinstance(_ast, ast.Constant):
         return _ast.value
