@@ -17,7 +17,7 @@ def fn():
             if ymatch_0_subject == 'a' or ymatch_0_subject == 'b':
                 _yfor_chloop_iter[_yfor_chloop_i] = 'c'
             elif True and all({x == 'c' for x in _yfor_chloop_iter}):
-                yloopsf |= 2
+                yloopsf = 2
                 break
             elif True and ch != 'c':
                 del _yfor_chloop_iter[_yfor_chloop_i]

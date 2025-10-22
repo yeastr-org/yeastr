@@ -30,7 +30,7 @@ Gets transformed into:
             ch = _yfor_charloop_it
             print(ch, _yfor_charloop_it, _yfor_charloop_i)
             if ch == 'w':
-                yloopsf |= 2
+                yloopsf = 2
                 break
         if yloopsf & 2:
             yloopsf = 0
@@ -154,10 +154,10 @@ def yloopsf_set():
                 raise NotImplementedError('new dev thing?')
         assert moon.up.node.__class__ == ast.Expr, f'misplaced Break/Continue {moon.up.node.__class__}'
         moon.up.pop_extend([
-            ast.AugAssign(
-                target=ast.Name('yloopsf'),
-                op=ast.BitOr(),
-                value=ast.Constant(flg << (moon.loop_moon.loop_depth * 2))
+            ast.Assign(
+                targets=[ast.Name('yloopsf')],
+                value=ast.Constant(flg << (moon.loop_moon.loop_depth * 2)),
+                lineno=1,
             ),
             ast.Break(),  # yeah, break on Continue
         ])

@@ -446,7 +446,7 @@ def with_macros(debug=False):
                         if arg.arg == 'defer_expansion' and isinstance(arg.value, ast.Constant) and arg.value.value:
                             del _yfor_kwdloop_iter[_yfor_kwdloop_i]
                             deferred_macroe.append(moon.node)
-                            yloopsf |= 4
+                            yloopsf = 4
                             break
                         _yfor_kwdloop_i += 1
                         assert _yfor_kwdloop_i >= 0, 'u screwed up.. I mean, down, yep, up\nu screwed up!'
@@ -1070,7 +1070,7 @@ def with_namedloops(debug=False):
                             elif True:
                                 raise NotImplementedError('new dev thing?')
                             assert moon.up.node.__class__ == ast.Expr, f'misplaced Break/Continue {moon.up.node.__class__}'
-                            moon.up.pop_extend([ast.AugAssign(target=ast.Name('yloopsf'), op=ast.BitOr(), value=ast.Constant(flg << moon.loop_moon.loop_depth * 2)), ast.Break()])
+                            moon.up.pop_extend([ast.Assign(targets=[ast.Name('yloopsf')], value=ast.Constant(flg << moon.loop_moon.loop_depth * 2), lineno=1), ast.Break()])
                         else:
                             ymatch_2_subject = moon.loopattr
                             if ymatch_2_subject == 'Break':
