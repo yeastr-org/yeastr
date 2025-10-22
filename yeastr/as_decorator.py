@@ -20,46 +20,45 @@ except ImportError:
 class Moon:
     """Yeastr's fundamental building block.
 
-    Basically holds weakref.proxy to ast.AST with position and metadata.
+    Basically holds weakref to ast.AST with position and metadata.
 
-    Helpers to edit the ast-tree in-place.
-
-    node and up are storing a strong ref over the proxied object.
+    When you get node or up, the weakref is converted to a trong ref.
 
     This means once you called one of those properties,
     the object is alive until you get rid of the Moon.
 
     Store temporary Moons with :class:`MoonGrabber`
+
+    Moon has helpers to edit the ast-tree in-place.
+
     """
 
     def __init__(self, node, parent=None, field=None, position=None):
         self._node_ref = weakref.ref(node)
-        self._node = weakref.proxy(node)
         if parent:
             self._up_ref = weakref.ref(parent)
-            self._up = weakref.proxy(parent)
         else:
-            self._up = None
+            self._up_ref = None
         self.up_field = field
         self.position = position
 
     @property
     def node(self):
         """``ast.AST`` Corresponding to this moon"""
-        self._node_obj = self._node.__weakref__()
+        self._node_obj = self._node_ref()
         return self._node_obj
 
     @property
     def up(self):
         """``ast.AST`` Corresponding to this moon's parent"""
-        if self._up is None:
+        if self._up_ref is None:
             return None
-        self._up_obj = self._up.__weakref__()
+        self._up_obj = self._up_ref()
         return self._up_obj
 
     @up.setter
     def up(self, new):
-        """Change the parent
+        """Change the parent (doesn't edit the tree)
 
         :param new: The new parent
         :type new: Moon
@@ -67,10 +66,8 @@ class Moon:
         self._up_obj = None
         if new:
             self._up_ref = weakref.ref(new)
-            self._up = weakref.proxy(new)
         else:
             self._up_ref = None
-            self._up = None
 
     def __str__(self):
         return f'<Moon({self.node.__class__.__name__} {self.up!r}.{self.up_field}[{self.position}])>{ast.unparse(self.node)}</>'
@@ -423,7 +420,7 @@ def with_macros(debug=False):
                 needs_expansion = moon.node.__class__ == ast.Call and moon.node.func.__class__ in (ast.Name, ast.Attribute) and (moon.node not in deferred_macroe) and ((retrieved := ymacro__macros.retrieve(moon.node.func)) is not None)
                 if needs_expansion:
                     moon.retrieved = retrieved
-                    macro_keepalive(moon, moon.up, moon._up.up)
+                    macro_keepalive(moon, moon.up, moon.up.up)
                     return moon
             depth_counter = 0
             depth_limit = 500
@@ -476,7 +473,7 @@ def with_macros(debug=False):
 
                             def moon_filter(moon):
                                 if moon.node.__class__ == ast.Name and ((fpname := (moon.node.id in ym_params)) or moon.node.id in ym_quoted):
-                                    moon.argname = moon._node.id
+                                    moon.argname = moon.node.id
                                     moon.suffix = ''
                                     if not fpname:
                                         moon.suffix = '_quoted'
@@ -549,7 +546,7 @@ def with_macros(debug=False):
 
                             def moon_filter(moon):
                                 if moon.node.__class__ == ast.Name and moon.node.id in w_params:
-                                    moon.argname = moon._node.id
+                                    moon.argname = moon.node.id
                                     keepalive(moon.up)
                                     return moon
                             yloopsf = 0
@@ -562,7 +559,7 @@ def with_macros(debug=False):
                         with MoonGrabber() as keepalive:
 
                             def moon_filter(moon):
-                                if moon._node.__class__ == ast.Name and moon._node.id in formal_params:
+                                if moon.node.__class__ == ast.Name and moon.node.id in formal_params:
                                     keepalive(moon.up)
                                     return moon
 
@@ -586,7 +583,7 @@ def with_macros(debug=False):
                         with MoonGrabber() as keepalive:
 
                             def moon_filter(moon):
-                                if moon._node.__class__ == ast.Name and moon._node.id in where:
+                                if moon.node.__class__ == ast.Name and moon.node.id in where:
                                     keepalive(moon.up)
                                     return moon
 
@@ -748,7 +745,7 @@ def with_macros(debug=False):
                         where = fn__.__code__.co_varnames if fn__.ym_flags & YMF_hygienic else signature(fn__).parameters
 
                         def moon_filter(moon):
-                            if isinstance(moon._node, ast.Name) and moon._node.id in where and (moon._up.node not in assignments) and (moon._node not in replacements):
+                            if isinstance(moon.node, ast.Name) and moon.node.id in where and (moon.up.node not in assignments) and (moon.node not in replacements):
                                 return moon
 
                         def moon_walk(moonwalker):
@@ -836,27 +833,27 @@ def with_namedloops(debug=False):
             def moon_filter(moon, moonwalker):
                 moon.flags = 0
                 moon.loop_depth = 0
-                if moon._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
+                if moon.node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
                     moon.kind = 'Fn'
                     moon.loopname = False
                     return moon
-                if moon._node.__class__ in (ast.For, ast.While):
-                    moon.kind = moon._node.__class__.__name__.lower()
+                if moon.node.__class__ in (ast.For, ast.While):
+                    moon.kind = moon.node.__class__.__name__.lower()
                     moon.loopname = None
-                    moon._loop_depth = 0
-                    up = moon._up
+                    moon.loop_depth = 0
+                    up = moon.up
                     yloopsf = 0
                     while up:
-                        if up._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
+                        if up.node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
                             break
-                        elif up._node.__class__ in (ast.For, ast.While) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
-                            moon._loop_depth += 1
-                        up = up._up
-                    moon.loop_depth = max(moon.loop_depth, moon._loop_depth)
+                        elif up.node.__class__ in (ast.For, ast.While) or (up.node.__class__ == ast.With and isinstance((what := up.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up.node.__class__ == ast.With and isinstance((what := up.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
+                            moon.loop_depth += 1
+                        up = up.up
+                    moon.loop_depth = max(moon.loop_depth, moon.loop_depth)
                     grab(moon.up)
                     moon.node
                     return moon
-                elif moon._node.__class__ == ast.With and isinstance((what := moon._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For'):
+                elif moon.node.__class__ == ast.With and isinstance((what := moon.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For'):
                     moon.kind = 'For'
                     if not call.args:
                         raise TransformError('For without iterable')
@@ -917,16 +914,16 @@ def with_namedloops(debug=False):
                         elif True:
                             raise TransformError(f'what is {k}={v}?{_bfb_0a__}{ast.unparse(moon.node)}')
                     grab(moon.up)
-                    moon._loop_depth = 0
-                    up = moon._up
+                    moon.loop_depth = 0
+                    up = moon.up
                     yloopsf = 0
                     while up:
-                        if up._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
+                        if up.node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
                             break
-                        elif up._node.__class__ in (ast.For, ast.While) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
-                            moon._loop_depth += 1
-                        up = up._up
-                    moon.loop_depth = max(moon.loop_depth, moon._loop_depth)
+                        elif up.node.__class__ in (ast.For, ast.While) or (up.node.__class__ == ast.With and isinstance((what := up.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up.node.__class__ == ast.With and isinstance((what := up.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
+                            moon.loop_depth += 1
+                        up = up.up
+                    moon.loop_depth = max(moon.loop_depth, moon.loop_depth)
                     return moon
                 elif moon.node.__class__ == ast.With and isinstance((what := moon.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While'):
                     moon.kind = 'While'
@@ -943,18 +940,18 @@ def with_namedloops(debug=False):
                     moon.orelse = []
                     moon.test_condition = call.args[0]
                     grab(moon.up)
-                    moon._loop_depth = 0
-                    up = moon._up
+                    moon.loop_depth = 0
+                    up = moon.up
                     yloopsf = 0
                     while up:
-                        if up._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
+                        if up.node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
                             break
-                        elif up._node.__class__ in (ast.For, ast.While) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up._node.__class__ == ast.With and isinstance((what := up._node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
-                            moon._loop_depth += 1
-                        up = up._up
-                    moon.loop_depth = max(moon.loop_depth, moon._loop_depth)
+                        elif up.node.__class__ in (ast.For, ast.While) or (up.node.__class__ == ast.With and isinstance((what := up.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'For')) or (up.node.__class__ == ast.With and isinstance((what := up.node.items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == 'While')):
+                            moon.loop_depth += 1
+                        up = up.up
+                    moon.loop_depth = max(moon.loop_depth, moon.loop_depth)
                     return moon
-                elif isinstance(moon._node, ast.With) and isinstance((what := moon._node.items), list) and (len(what) == 1) and isinstance((attr := what[0].context_expr), ast.Attribute) and (attr.attr == 'orelse'):
+                elif isinstance(moon.node, ast.With) and isinstance((what := moon.node.items), list) and (len(what) == 1) and isinstance((attr := what[0].context_expr), ast.Attribute) and (attr.attr == 'orelse'):
                     moon.kind = 'orelse'
                     moon.loopname = attr.value.id
                     yloopsf = 0
@@ -964,10 +961,10 @@ def with_namedloops(debug=False):
                             break
                     else:
                         raise TransformError('orelse without corresponding loop')
-                    moon.loop_moon.orelse = moon._node.body
+                    moon.loop_moon.orelse = moon.node.body
                     grab(moon.up)
                     return moon
-                elif isinstance(moon._node, ast.With) and isinstance((what := moon._node.items), list) and (len(what) == 1) and isinstance((attr := what[0].context_expr), ast.Attribute) and (attr.attr == 'orempty'):
+                elif isinstance(moon.node, ast.With) and isinstance((what := moon.node.items), list) and (len(what) == 1) and isinstance((attr := what[0].context_expr), ast.Attribute) and (attr.attr == 'orempty'):
                     moon.kind = 'orempty'
                     moon.loopname = attr.value.id
                     yloopsf = 0
@@ -977,13 +974,13 @@ def with_namedloops(debug=False):
                             break
                     else:
                         raise TransformError('orempty without corresponding loop')
-                    moon.loop_moon.orempty = moon._node.body
+                    moon.loop_moon.orempty = moon.node.body
                     grab(moon.up)
                     return moon
                 elif isinstance(moon.node, ast.Attribute) and isinstance(moon.node.value, ast.Name) and (moon.node.attr in ('iter', 'it', 'item', 'i', 'index', 'Break', 'Continue')):
                     moon.kind = 'attr'
-                    moon.loopname = moon._node.value.id
-                    moon.loopattr = moon._node.attr
+                    moon.loopname = moon.node.value.id
+                    moon.loopattr = moon.node.attr
                     moon.loop_moon = None
                     moon.loop_handlers = []
                     moon.different_depth = False
@@ -1141,10 +1138,10 @@ def with_call2comp(debug=False):
         del source
 
         def moon_filter(moon):
-            if moon._node.__class__ == ast.Call and (bind_fn_as := moon._node.func).__class__ == ast.Name and ((fname := bind_fn_as.id) in map(lambda p: ''.join(p), itertools.product(('emap', 'efilter', 'efiltermap'), ('', 'l', 'd', 's')))):
+            if moon.node.__class__ == ast.Call and (bind_fn_as := moon.node.func).__class__ == ast.Name and ((fname := bind_fn_as.id) in map(lambda p: ''.join(p), itertools.product(('emap', 'efilter', 'efiltermap'), ('', 'l', 'd', 's')))):
                 moon.fname = fname
                 yloopsf = 0
-                for _yfor_ekwdloop_it in [v for (k, v) in emap(lambda kw: (kw.arg, kw.value), moon._node.keywords) if k == 'performance_required']:
+                for _yfor_ekwdloop_it in [v for (k, v) in emap(lambda kw: (kw.arg, kw.value), moon.node.keywords) if k == 'performance_required']:
                     v = _yfor_ekwdloop_it
                     assert isinstance(v, ast.Constant), v
                     moon.performance_required = v.value
@@ -1152,8 +1149,8 @@ def with_call2comp(debug=False):
                     break
                 else:
                     moon.performance_required = True
-                if len((args := moon._node.args)) < 2:
-                    raise TransformError(f"Where's my args? {ast.unparse(moon._node)}")
+                if len((args := moon.node.args)) < 2:
+                    raise TransformError(f"Where's my args? {ast.unparse(moon.node)}")
                 moon.arg0 = args[0]
                 moon.arg1 = args[1]
                 if fname.startswith('efiltermap'):
@@ -1430,7 +1427,7 @@ def backport_match(debug=False, custom_globals={}):
             match_counter = 0
 
             def moon_filter(moon):
-                if isinstance(moon._node, ast.Match):
+                if isinstance(moon.node, ast.Match):
                     moon.up
                     return moon
             yloopsf = 0

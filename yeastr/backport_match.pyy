@@ -192,7 +192,7 @@ def backport_match_impl(yr_ast_tree):
     backport_match_helpers()
     match_counter = 0
     def moon_filter(moon):
-        if isinstance(moon._node, ast.Match):
+        if isinstance(moon.node, ast.Match):
             moon.up  # incref
             return moon
     for moon in MoonWalking(ast_tree, filter_cb=moon_filter).tree:

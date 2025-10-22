@@ -110,19 +110,19 @@ Reference
 
 @def_macro
 def compute_current_depth():
-    moon._loop_depth = 0
-    up = moon._up
+    moon.loop_depth = 0
+    up = moon.up
     while up:
-        if up._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
+        if up.node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
             break
         elif (
-            up._node.__class__ in (ast.For, ast.While)
-            or yam_with_call_name(up._node, _, 'For')
-            or yam_with_call_name(up._node, _, 'While')
+            up.node.__class__ in (ast.For, ast.While)
+            or yam_with_call_name(up.node, _, 'For')
+            or yam_with_call_name(up.node, _, 'While')
         ):
-            moon._loop_depth += 1
-        up = up._up
-    moon.loop_depth = max(moon.loop_depth, moon._loop_depth)
+            moon.loop_depth += 1
+        up = up.up
+    moon.loop_depth = max(moon.loop_depth, moon.loop_depth)
 
 
 @def_macro
@@ -219,26 +219,26 @@ def with_namedloops_impl(yr_ast_tree):
         def moon_filter(moon, moonwalker):
             moon.flags = 0
             moon.loop_depth = 0
-            # if (  (  (moon._node.__class__ == ast.Assign
-            #         and (aname := moon._node.targets[0]).__class__ == ast.Name
-            #     ) or (moon._node.__class__ == ast.AugAssign
-            #         and (aname := moon._node.target).__class__ == ast.Name
+            # if (  (  (moon.node.__class__ == ast.Assign
+            #         and (aname := moon.node.targets[0]).__class__ == ast.Name
+            #     ) or (moon.node.__class__ == ast.AugAssign
+            #         and (aname := moon.node.target).__class__ == ast.Name
             #     ) ) and aname.id == 'yloopsf'
             # ):
             #     raise TransformError('are you trying to re-preprocess?')
             #     # let's say it's ok, but easy to enable back
-            if moon._node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
+            if moon.node.__class__ in (ast.FunctionDef, ast.AsyncFunctionDef):
                 moon.kind = 'Fn'
                 moon.loopname = False
                 return moon
-            if moon._node.__class__ in (ast.For, ast.While):
-                moon.kind = moon._node.__class__.__name__.lower()
+            if moon.node.__class__ in (ast.For, ast.While):
+                moon.kind = moon.node.__class__.__name__.lower()
                 moon.loopname = None
                 compute_current_depth()
                 grab(moon.up)
                 moon.node  # incref
                 return moon
-            elif yam_with_call_name(moon._node, call, 'For'):
+            elif yam_with_call_name(moon.node, call, 'For'):
                 moon.kind = 'For'
                 if not call.args:
                     raise TransformError('For without iterable')
@@ -314,8 +314,8 @@ def with_namedloops_impl(yr_ast_tree):
                 compute_current_depth()
                 return moon
             elif (
-                isinstance(moon._node, ast.With)
-                and isinstance((what := moon._node.items), list)
+                isinstance(moon.node, ast.With)
+                and isinstance((what := moon.node.items), list)
                 and len(what) == 1
                 and isinstance((attr := what[0].context_expr), ast.Attribute)
                 and attr.attr == 'orelse'
@@ -332,12 +332,12 @@ def with_namedloops_impl(yr_ast_tree):
                         break
                 else:
                     raise TransformError('orelse without corresponding loop')
-                moon.loop_moon.orelse = moon._node.body
+                moon.loop_moon.orelse = moon.node.body
                 grab(moon.up)
                 return moon
             elif (
-                isinstance(moon._node, ast.With)
-                and isinstance((what := moon._node.items), list)
+                isinstance(moon.node, ast.With)
+                and isinstance((what := moon.node.items), list)
                 and len(what) == 1
                 and isinstance((attr := what[0].context_expr), ast.Attribute)
                 and attr.attr == 'orempty'
@@ -351,7 +351,7 @@ def with_namedloops_impl(yr_ast_tree):
                         break
                 else:
                     raise TransformError('orempty without corresponding loop')
-                moon.loop_moon.orempty = moon._node.body
+                moon.loop_moon.orempty = moon.node.body
                 grab(moon.up)
                 return moon
             elif (
@@ -367,8 +367,8 @@ def with_namedloops_impl(yr_ast_tree):
                 )
             ):
                 moon.kind = 'attr'
-                moon.loopname = moon._node.value.id
-                moon.loopattr = moon._node.attr
+                moon.loopname = moon.node.value.id
+                moon.loopattr = moon.node.attr
                 moon.loop_moon = None
                 moon.loop_handlers = []
                 moon.different_depth = False

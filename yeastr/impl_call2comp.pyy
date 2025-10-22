@@ -4,7 +4,7 @@ def with_call2comp_impl(yr_ast_tree):
     # Beware, when we fallback we remove all of the kwargs
     def moon_filter(moon):
         if yam_call_names(
-            moon._node,
+            moon.node,
             map(
                 lambda p: ''.join(p),
                 itertools.product(('emap', 'efilter', 'efiltermap'),
@@ -16,15 +16,15 @@ def with_call2comp_impl(yr_ast_tree):
             with For(v in efiltermap(lambda k, v: k == 'performance_required',
                                      lambda k, v: v,  # sorry feels dumb
                                      emap(lambda kw: (kw.arg, kw.value),
-                                          moon._node.keywords))
+                                          moon.node.keywords))
             ) as ekwdloop:
                 assert isinstance(v, ast.Constant), v
                 moon.performance_required = v.value
                 ekwdloop.Break
             with ekwdloop.orelse:
                 moon.performance_required = True
-            if len((args := moon._node.args)) < 2:
-                raise TransformError(f'Where\'s my args? {ast.unparse(moon._node)}')
+            if len((args := moon.node.args)) < 2:
+                raise TransformError(f'Where\'s my args? {ast.unparse(moon.node)}')
             moon.arg0 = args[0]
             moon.arg1 = args[1]
             if fname.startswith('efiltermap'):

@@ -302,7 +302,7 @@ def standard_macro_style_params_replacement():
     replacements = []
     with MoonGrabber() as keepalive:
         def moon_filter(moon):
-            if moon._node.__class__ == ast.Name and moon._node.id in where:
+            if moon.node.__class__ == ast.Name and moon.node.id in where:
                 keepalive(moon.up)
                 return moon
         def moon_walk(moonwalker):
@@ -320,8 +320,8 @@ def expression_macro_style_params_replacement():
     with MoonGrabber() as keepalive:
         def moon_filter(moon):
             if (
-                moon._node.__class__ == ast.Name
-                and moon._node.id in formal_params
+                moon.node.__class__ == ast.Name
+                and moon.node.id in formal_params
             ):
                 keepalive(moon.up)
                 return moon
@@ -364,7 +364,7 @@ def xy_macro_direct_expansion():
                     or moon.node.id in ym_quoted
                 )
             ):
-                moon.argname = moon._node.id
+                moon.argname = moon.node.id
                 moon.suffix = ''
                 if not fpname:
                     moon.suffix = '_quoted'
@@ -437,7 +437,7 @@ def w_macro_style_params_replacement():
                 moon.node.__class__ == ast.Name
                 and moon.node.id in w_params
             ):
-                moon.argname = moon._node.id
+                moon.argname = moon.node.id
                 keepalive(moon.up)
                 return moon
         with For(MoonWalking(_ast[0], filter_cb=moon_filter).tree) as wmoons:
@@ -477,10 +477,10 @@ def standard_macro_expansion():
         else signature(fn__).parameters
     def moon_filter(moon):
         if (
-            isinstance(moon._node, ast.Name)
-            and moon._node.id in where
-            and moon._up.node not in assignments
-            and moon._node not in replacements
+            isinstance(moon.node, ast.Name)
+            and moon.node.id in where
+            and moon.up.node not in assignments
+            and moon.node not in replacements
         ):
             return moon
     def moon_walk(moonwalker):
@@ -555,7 +555,7 @@ def with_macros_impl_wrapper(macros_, some_ast, never_defer):
             macros_to_be_expanded(macros_, moon.node)
             if needs_expansion:
                 moon.retrieved = retrieved
-                macro_keepalive(moon, moon.up, moon._up.up)
+                macro_keepalive(moon, moon.up, moon.up.up)
                 return moon
         # A macro that expands into itself is just infinite
         # But it's not true recursion, memory usage won't ramp up!

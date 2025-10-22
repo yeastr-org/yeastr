@@ -23,48 +23,46 @@ except ImportError:
 class Moon:
     """Yeastr's fundamental building block.
 
-    Basically holds weakref.proxy to ast.AST with position and metadata.
+    Basically holds weakref to ast.AST with position and metadata.
 
-    Helpers to edit the ast-tree in-place.
-
-    node and up are storing a strong ref over the proxied object.
+    When you get node or up, the weakref is converted to a trong ref.
 
     This means once you called one of those properties,
     the object is alive until you get rid of the Moon.
 
     Store temporary Moons with :class:`MoonGrabber`
+
+    Moon has helpers to edit the ast-tree in-place.
+
     """
     def __init__(self, node, parent=None, field=None, position=None):
         # TypeError: cannot create weak reference to 'list' object
         # here probably means you are building a bad tree
         self._node_ref = weakref.ref(node)
-        self._node = weakref.proxy(node)
         if parent:
             self._up_ref = weakref.ref(parent)
-            self._up = weakref.proxy(parent)
         else:
-            # self._up_ref = None
-            self._up = None
+            self._up_ref = None
         self.up_field = field
         self.position = position  # within up_field
 
     @property
     def node(self):
         """``ast.AST`` Corresponding to this moon"""
-        self._node_obj = self._node.__weakref__()
+        self._node_obj = self._node_ref()
         return self._node_obj
 
     @property
     def up(self):
         """``ast.AST`` Corresponding to this moon's parent"""
-        if self._up is None:
+        if self._up_ref is None:
             return None
-        self._up_obj = self._up.__weakref__()
+        self._up_obj = self._up_ref()
         return self._up_obj
 
     @up.setter
     def up(self, new):
-        """Change the parent
+        """Change the parent (doesn't edit the tree)
 
         :param new: The new parent
         :type new: Moon
@@ -72,15 +70,8 @@ class Moon:
         self._up_obj = None
         if new:
             self._up_ref = weakref.ref(new)
-            self._up = weakref.proxy(new)
         else:
             self._up_ref = None
-            self._up = None
-
-    # nope, that's a mistake
-    #def __del__(self):
-    #    self._node_obj = None
-    #    self._up_obj = None
 
     def __str__(self):
        return (
