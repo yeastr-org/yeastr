@@ -34,7 +34,6 @@ class YeastrPathFinder(PathFinder):
 
     @classmethod
     def invalidate_caches(cls):
-        yloopsf = 0
         for finder in list(cls.path_importer_cache.values()):
             if hasattr(finder, 'invalidate_caches'):
                 finder.invalidate_caches()

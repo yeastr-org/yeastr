@@ -84,7 +84,6 @@ class Moon:
         :type kind: ast.AST | Tuple[ast.AST]
         :rtype: Moon | None"""
         node = self.up
-        yloopsf = 0
         while node and (not isinstance(node.node, kind)):
             node = node.up
         return node
@@ -190,13 +189,11 @@ class MoonWalking:
         """
         if filter_cb and filter_cb.__code__.co_argcount == 2:
             self.tree = []
-            yloopsf = 0
             for moon in self._iter_ast(root):
                 if (newmoon := filter_cb(moon, self)):
                     self.tree.append(newmoon)
         elif filter_cb:
             self.tree = []
-            yloopsf = 0
             for moon in self._iter_ast(root):
                 if (newmoon := filter_cb(moon)):
                     self.tree.append(newmoon)
@@ -210,25 +207,15 @@ class MoonWalking:
     def _iter_ast(ast_node, parent=None, field=None, position=None):
         """Generator called by __init__, yields Moons"""
         yield (parent := Moon(ast_node, parent, field, position))
-        yloopsf = 0
         for (fieldname, field) in ast.iter_fields(ast_node):
             if isinstance(field, ast.AST):
-                yloopsf = 0
                 for it in MoonWalking._iter_ast(field, parent, fieldname):
                     yield it
-                if yloopsf:
-                    break
             elif isinstance(field, list):
-                yloopsf = 0
                 for (i, it) in enumerate(field):
                     if isinstance(it, ast.AST):
-                        yloopsf = 0
                         for it in MoonWalking._iter_ast(it, parent, fieldname, i):
                             yield it
-                        if yloopsf:
-                            break
-                if yloopsf:
-                    break
 
 def ast_copy(ast_node):
     """deepcopy of :class:`ast.AST` tree, just faster"""
@@ -247,7 +234,6 @@ def add_at_the_module_beginning(ast_module, ast_node):
     """Adds ast_node after module docstring and future imports"""
     ymacro_ast_module = ast_module
     position = 1 if ymacro_ast_module.__class__ == ast.Module and ymacro_ast_module.body[0].__class__ == ast.Expr and (ymacro_ast_module.body[0].value.__class__ == ast.Constant) and (ymacro_ast_module.body[0].value.value == str) else 0
-    yloopsf = 0
     while ymacro_ast_module.body[position].__class__ == ast.ImportFrom and ymacro_ast_module.body[position].module == '__future__':
         position += 1
     ast_module.body.insert(position, ast_node)
@@ -400,7 +386,6 @@ class Macros:
             indent = len(re.compile('^(\\s*)\\S*').match(_source).group(1))
             source = ''
             multiline_string = False
-            yloopsf = 0
             for line in _source.splitlines():
                 if multiline_string is False:
                     line = line[indent:]
@@ -543,7 +528,6 @@ class BuildTimeTransformer:
                     elif strip == 'strip_strip':
                         _yfor_kwloop_iter = call.keywords
                         _yfor_kwloop_i = 0
-                        yloopsf = 0
                         while _yfor_kwloop_i < len(_yfor_kwloop_iter):
                             kw = _yfor_kwloop_iter[_yfor_kwloop_i]
                             if kw.arg == 'strip':
@@ -552,8 +536,6 @@ class BuildTimeTransformer:
                                 break
                             _yfor_kwloop_i += 1
                             assert _yfor_kwloop_i >= 0, 'u screwed up.. I mean, down, yep, up\nu screwed up!'
-                        if yloopsf:
-                            break
                         mnode = ast_copy(tln)
                         assert len(mnode.decorator_list) == 1, 'TODO: What to do with other decorators?'
                         mnode.decorator_list = []
@@ -592,7 +574,6 @@ class BuildTimeTransformer:
                     raise RecursionError(f'macro expansion limit({depth_limit}): ' + ', '.join((moon.retrieved[0] for moon in macro_moons)))
                 if ymacro_never_defer:
                     deferred_macroe = []
-                yloopsf = 0
                 for _yfor_macroexpansionloop_it in macro_moons:
                     moon = _yfor_macroexpansionloop_it
                     retrieved = moon.retrieved
@@ -601,7 +582,6 @@ class BuildTimeTransformer:
                     _yfor_kwdloop_iter = moon.node.keywords
                     _yfor_kwdloop_end = len(_yfor_kwdloop_iter)
                     _yfor_kwdloop_i = 0
-                    yloopsf = 0
                     while _yfor_kwdloop_i < _yfor_kwdloop_end:
                         arg = _yfor_kwdloop_iter[_yfor_kwdloop_i]
                         if arg.arg == 'defer_expansion' and isinstance(arg.value, ast.Constant) and arg.value.value:
@@ -614,8 +594,6 @@ class BuildTimeTransformer:
                     if yloopsf & 4:
                         yloopsf = 0
                         continue
-                    elif yloopsf:
-                        break
                     if fn__.ym_flags & YMF_XMacro:
                         if fn__.ym_flags & YMF_hygienic:
                             assert all((p is None for p in where)), 'incompatibilities?'
@@ -640,23 +618,17 @@ class BuildTimeTransformer:
                                         moon.suffix = '_quoted'
                                     keepalive(moon.up)
                                     return moon
-                            yloopsf = 0
                             for _x in _ast:
                                 if not (_x.__class__ == ast.Expr and (xname := _x.value).__class__ == ast.Name and (xstr := xname.id)):
                                     raise NotImplementedError('XMacro is not a list of names, this is TODO')
                                 preserved_xYast = ast_copy(xYast)
                                 fake_module = ast.Module(body=preserved_xYast)
-                                yloopsf = 0
                                 for _yfor_xymoons_it in MoonWalking(fake_module, filter_cb=moon_filter).tree:
                                     if _yfor_xymoons_it.suffix == '_quoted':
                                         _yfor_xymoons_it.replace(ast.Constant(xstr))
                                     else:
                                         _yfor_xymoons_it.replace(ast.Name(xstr, ctx=_yfor_xymoons_it.node.ctx))
-                                if yloopsf:
-                                    break
                                 moon.expanded.extend(preserved_xYast)
-                            if yloopsf:
-                                break
                     elif fn__.ym_flags & YMF_ZMacro:
                         assert moon.node.args[0].__class__ == ast.Name, 'bad ZMacro 1st param, must be XMacro'
                         assert moon.node.args[1].__class__ == ast.Name, 'bad ZMacro 2nd param, must be WMacro'
@@ -693,11 +665,8 @@ class BuildTimeTransformer:
                                     else:
                                         _n.node.id = moon.node.args[_n.param_i].id
                                 return True
-                            yloopsf = 0
                             for ast__ in _ast:
                                 MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
-                            if yloopsf:
-                                break
                     elif fn__.ym_flags & YMF_WMacro:
                         w_params = list(signature(fn__).parameters.keys())
                         if len(w_params) > 1:
@@ -710,11 +679,8 @@ class BuildTimeTransformer:
                                     moon.argname = moon.node.id
                                     keepalive(moon.up)
                                     return moon
-                            yloopsf = 0
                             for _yfor_wmoons_it in MoonWalking(_ast[0], filter_cb=moon_filter).tree:
                                 _yfor_wmoons_it.replace(ast.Name(moon.node.args[0].id, ctx=_yfor_wmoons_it.node.ctx))
-                            if yloopsf:
-                                break
                     elif fn__.ym_flags & YMF_expr:
                         formal_params = list(signature(fn__).parameters.keys())
                         with MoonGrabber() as keepalive:
@@ -729,11 +695,8 @@ class BuildTimeTransformer:
                                 for _n in moonwalker.tree:
                                     _n.replace(ast.Name(formal_params[formal_param_i]) if (actual_param := moon.node.args[(formal_param_i := formal_params.index(_n.node.id))]).__class__ == ast.Name and (actual_param := moon.node.args[(formal_param_i := formal_params.index(_n.node.id))]).id == '_' else actual_param)
                                 return True
-                            yloopsf = 0
                             for ast__ in _ast:
                                 MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
-                            if yloopsf:
-                                break
                     else:
                         if not isinstance(moon.up.node, ast.Expr):
                             raise NotImplementedError(f'macro expansion within {moon.up.node.__class__}')
@@ -755,11 +718,8 @@ class BuildTimeTransformer:
                                     _n.replace(arg)
                                     replacements.append(arg)
                                 return True
-                            yloopsf = 0
                             for ast__ in _ast:
                                 MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
-                            if yloopsf:
-                                break
                     if fn__.ym_flags & YMF_mLang:
                         mglobals = {'ast': ast, '__builtins__': restricted_builtins}
                         mEval_ctx = {'__builtins__': restricted_builtins}
@@ -786,7 +746,6 @@ class BuildTimeTransformer:
                                 if isinstance(mbody_ast_field, list):
                                     _yfor_subnodes_loop_iter = mbody_ast_field
                                     _yfor_subnodes_loop_i = 0
-                                    yloopsf = 0
                                     while _yfor_subnodes_loop_i < len(_yfor_subnodes_loop_iter):
                                         subnode = _yfor_subnodes_loop_iter[_yfor_subnodes_loop_i]
                                         try:
@@ -816,8 +775,6 @@ class BuildTimeTransformer:
                                             assert False, f"unexpected {action} ({'nested'})"
                                         _yfor_subnodes_loop_i += 1
                                         assert _yfor_subnodes_loop_i >= 0, 'u screwed up.. I mean, down, yep, up\nu screwed up!'
-                                    if yloopsf:
-                                        break
                                 elif isinstance(mbody_ast_field, ast.AST):
                                     (action, new_node) = perform(mbody_ast_field, next_node)
                                     if action == 'mEval':
@@ -829,7 +786,6 @@ class BuildTimeTransformer:
                             return (None, None)
                         _yfor_mbody_loop_iter = _ast
                         _yfor_mbody_loop_i = 0
-                        yloopsf = 0
                         while _yfor_mbody_loop_i < len(_yfor_mbody_loop_iter):
                             mbody_ast = _yfor_mbody_loop_iter[_yfor_mbody_loop_i]
                             try:
@@ -860,19 +816,14 @@ class BuildTimeTransformer:
                                 assert False, f"unexpected {action} ({'top'})"
                             _yfor_mbody_loop_i += 1
                             assert _yfor_mbody_loop_i >= 0, 'u screwed up.. I mean, down, yep, up\nu screwed up!'
-                        if yloopsf:
-                            break
                         _yfor_mbody_loop_iter = _ast
                         _yfor_mbody_loop_i = 0
-                        yloopsf = 0
                         while _yfor_mbody_loop_i < len(_yfor_mbody_loop_iter):
                             mbody_ast = _yfor_mbody_loop_iter[_yfor_mbody_loop_i]
                             if any((_yfor_mbody_loop_iter[_yfor_mbody_loop_i].__class__ == ast.With and isinstance((what := _yfor_mbody_loop_iter[_yfor_mbody_loop_i].items), list) and (len(what) == 1) and ((call := what[0].context_expr).__class__ == ast.Call) and (call.func.id == unexpected) for unexpected in ('mIf', 'mElse', 'mEval'))):
                                 breakpoint()
                             _yfor_mbody_loop_i += 1
                             assert _yfor_mbody_loop_i >= 0, 'u screwed up.. I mean, down, yep, up\nu screwed up!'
-                        if yloopsf:
-                            break
                     if fn__.ym_flags & YMF_expr:
                         if len(_ast) > 1:
                             raise TransformError(f"{'expression'} macro expanded into multiple expressions")
@@ -892,7 +843,6 @@ class BuildTimeTransformer:
                         if fn__.ym_flags & (YMF_expr | YMF_XMacro | YMF_YMacro | YMF_ZMacro | YMF_WMacro):
                             raise TransformError(f'Incorrect expansion of {mname}')
                         assignments = []
-                        yloopsf = 0
                         for (_yfor_l_i, _yfor_l_it) in enumerate(signature(fn__).parameters):
                             try:
                                 ass = ast.Assign(targets=[ast.Name(id=mp % _yfor_l_it)], value=moon.node.args[_yfor_l_i], lineno=1)
@@ -901,8 +851,6 @@ class BuildTimeTransformer:
                             if ass.value not in replacements:
                                 _ast.insert(0, ass)
                                 assignments.append(ass)
-                        if yloopsf:
-                            break
                         where = fn__.__code__.co_varnames if fn__.ym_flags & YMF_hygienic else signature(fn__).parameters
 
                         def moon_filter(moon):
@@ -914,11 +862,8 @@ class BuildTimeTransformer:
                             for _n in moonwalker.tree:
                                 _n.node.id = mp % _n.node.id
                             return True
-                        yloopsf = 0
                         for ast__ in _ast:
                             MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
-                        if yloopsf:
-                            break
                         moon.up.pop_extend(_ast)
                 if yloopsf:
                     break
@@ -949,7 +894,6 @@ class BuildTimeTransformer:
                     inner_fstring = ast.JoinedStr(values=(inner_values := []))
                     buffer = ''
                     new_names = set()
-                    yloopsf = 0
                     for (_yfor_charloop_i, _yfor_charloop_it) in enumerate(moon.node.value):
                         ch = _yfor_charloop_it
                         if (nx := (_yfor_charloop_i not in moon.x_escaped)) and _yfor_charloop_i not in moon.u_escaped:
@@ -962,8 +906,6 @@ class BuildTimeTransformer:
                             inner_values.extend([ast.Constant(buffer), ast.FormattedValue(value=ast.Name((new_name := f'_bfb_{ord(ch):02x}__')), conversion=-1)])
                             new_names.add(new_name)
                             buffer = ''
-                    if yloopsf:
-                        break
                     if buffer:
                         inner_values.append(ast.Constant(buffer))
                     moon.replace(inner_fstring)
@@ -1052,38 +994,43 @@ class BuildTimeTransformer:
                 new_body = [ast.Assign(targets=[(subj := ast.Name('ymatch_%d_subject' % match_counter))], value=match_subject, lineno=1)]
                 new_body.append(backport_MatchCase_to_if(subj, moon.node.cases[0]))
                 orelse = new_body[-1].orelse
-                yloopsf = 0
                 for match_case in moon.node.cases[1:]:
                     orelse.append((last_if := backport_MatchCase_to_if(subj, match_case)))
                     orelse = last_if.orelse
-                if yloopsf:
-                    break
                 moon.pop_extend(new_body)
                 match_counter += 1
 
         def before_the_loop(moon):
-            return ast.Assign(targets=[ast.Name('yloopsf')], value=ast.Constant(0), lineno=1)
+            if moon.flags & NEEDS_YLOOPSF:
+                return ast.Assign(targets=[ast.Name('yloopsf')], value=ast.Constant(0), lineno=1)
 
         def after_the_loop(moon):
             if moon.loop_depth == 0:
                 return None
-            flag_handlers = ast.If(test=ast.Name('yloopsf'), body=[ast.Break()], orelse=[])
-            if moon.flags & USES_CONTINUE:
+            if moon.flags & HANDLE_PROPAGATE:
+                flag_handlers = ast.If(test=ast.Name('yloopsf'), body=[ast.Break()], orelse=[])
+            else:
+                flag_handlers = None
+            if moon.flags & HANDLE_CONTINUE:
+                orelse = [flag_handlers] if flag_handlers else []
                 cnt_flag = 1 << (moon.loop_depth - 1) * 2
-                flag_handlers = ast.If(test=ast.BinOp(op=ast.BitAnd(), left=ast.Name('yloopsf'), right=ast.Constant(cnt_flag)), body=[ast.Assign(targets=[ast.Name('yloopsf')], value=ast.Constant(0), lineno=1), ast.Continue()], orelse=[flag_handlers])
-            if moon.flags & USES_BREAK:
+                flag_handlers = ast.If(test=ast.BinOp(op=ast.BitAnd(), left=ast.Name('yloopsf'), right=ast.Constant(cnt_flag)), body=[ast.Assign(targets=[ast.Name('yloopsf')], value=ast.Constant(0), lineno=1), ast.Continue()], orelse=orelse)
+            if moon.flags & HANDLE_BREAK:
+                orelse = [flag_handlers] if flag_handlers else []
                 brk_flag = 2 << (moon.loop_depth - 1) * 2
-                flag_handlers = ast.If(test=ast.BinOp(op=ast.BitAnd(), left=ast.Name('yloopsf'), right=ast.Constant(brk_flag)), body=[ast.Assign(targets=[ast.Name('yloopsf')], value=ast.Constant(0), lineno=1), ast.Break()], orelse=[flag_handlers])
+                flag_handlers = ast.If(test=ast.BinOp(op=ast.BitAnd(), left=ast.Name('yloopsf'), right=ast.Constant(brk_flag)), body=[ast.Assign(targets=[ast.Name('yloopsf')], value=ast.Constant(0), lineno=1), ast.Break()], orelse=orelse)
             return flag_handlers
         with MoonGrabber() as grab:
+            HANDLE_PROPAGATE = 1 << 0
             INDEXED = 1 << 1
             USES_I = 1 << 2
             RECOMPUTE_END = 1 << 3
-            USES_BREAK = 1 << 4
-            USES_CONTINUE = 1 << 5
+            HANDLE_BREAK = 1 << 4
+            HANDLE_CONTINUE = 1 << 5
             FAST_OREMPTY = 1 << 6
-            NOT_INDEXED = 61
-            DONT_RECOMPUTE_END = 55
+            NEEDS_YLOOPSF = 1 << 7
+            NOT_INDEXED = 125
+            DONT_RECOMPUTE_END = 119
 
             def moon_filter(moon, moonwalker):
                 moon.flags = 0
@@ -1237,17 +1184,23 @@ class BuildTimeTransformer:
                     moon.loopname = moon.node.value.id
                     moon.loopattr = moon.node.attr
                     moon.loop_moon = None
-                    moon.loop_handlers = []
                     moon.different_depth = False
                     yloopsf = 0
                     for other in reversed(moonwalker.tree):
-                        if other.kind in ('For', 'While', 'for', 'while'):
+                        if other.kind in ('Fn', 'For', 'While', 'for', 'while'):
+                            if moon.loopattr in ('Break', 'Continue') and other.loop_depth == 0:
+                                other.flags |= NEEDS_YLOOPSF
                             if other.loopname == moon.loopname:
+                                if moon.loopattr in ('Break', 'Continue') and moon.different_depth:
+                                    moon.different_depth.flags |= HANDLE_BREAK if moon.loopattr == 'Break' else HANDLE_CONTINUE
                                 moon.loop_moon = other
                                 break
-                            else:
-                                moon.loop_handlers.append(other)
-                                moon.different_depth = True
+                            elif moon.node in ast.walk(other.node):
+                                if other.kind == 'Fn' and moon.loopname != 'ast' and (moon.loopattr in ('Break', 'Continue')):
+                                    raise TransformError(f'{moon.loopname}.{moon.loopattr} outscoping a function')
+                                if moon.different_depth:
+                                    moon.different_depth.flags |= HANDLE_PROPAGATE
+                                moon.different_depth = other
                     else:
                         return None
                     ymatch_5_subject = moon.loopattr
@@ -1256,15 +1209,9 @@ class BuildTimeTransformer:
                     elif (ymatch_5_subject == 'it' or ymatch_5_subject == 'item') and (not moon.loop_moon.flags & INDEXED and moon.up.node.__class__ == ast.Delete):
                         raise TransformError(f'think u forgot indexed `with For(..., indexed=True) as {moon.loopname}: {ast.unparse(moon.up.node)}`')
                     elif ymatch_5_subject == 'Break':
-                        yloopsf = 0
-                        for handler in moon.loop_handlers:
-                            handler.flags |= USES_BREAK
                         grab(moon.up.up)
                         grab(moon.up.node)
                     elif ymatch_5_subject == 'Continue':
-                        yloopsf = 0
-                        for handler in moon.loop_handlers:
-                            handler.flags |= USES_CONTINUE
                         grab(moon.up.up)
                         grab(moon.up.node)
                     grab(moon.up)
@@ -1373,7 +1320,6 @@ class BuildTimeTransformer:
                     moon.arg2 = args[2]
                 moon.up
                 return moon
-        yloopsf = 0
         for moon in MoonWalking(self.ast, filter_cb=moon_filter).tree:
             ymatch_1_subject = (moon.fname, type(moon.arg0), type(moon.arg1))
             if ymatch_as_seq(ymatch_1_subject) and 3 == len(ymatch_1_subject) and (ymatch_1_subject[0] == 'emap' or ymatch_1_subject[0] == 'emapl' or ymatch_1_subject[0] == 'emaps') and (ymatch_1_subject[1] == ast.Lambda) and True:
@@ -1437,7 +1383,6 @@ class BuildTimeTransformer:
         if self.version_info < (3, 9):
 
             def grab_last_name(name, grab):
-                yloopsf = 0
                 for k in reversed(grab.defs):
                     if k[0] == name:
                         return bool(k[1])
@@ -1451,13 +1396,11 @@ class BuildTimeTransformer:
                         grab.defs.append((tgt.id, thing))
                     elif moon.node.__class__ == ast.Assign:
                         if moon.node.value.__class__ == ast.Tuple and moon.node.targets[0].__class__ == ast.Tuple and (len(moon.node.value.elts) == len(moon.node.targets[0].elts)):
-                            yloopsf = 0
                             for (tgt, val) in zip(moon.node.targets[0].elts, moon.node.value.elts):
                                 if tgt.__class__ == ast.Name:
                                     thing = 'assuc' if val.__class__ in (ast.Dict, ast.DictComp) or (val.__class__ == ast.Call and val.func.__class__ == ast.Name and (val.func.id == 'dict')) else False
                                     grab.defs.append((tgt.id, thing))
                         else:
-                            yloopsf = 0
                             for tgt in moon.node.targets:
                                 if tgt.__class__ == ast.Name:
                                     thing = 'assus' if moon.node.value.__class__ in (ast.Dict, ast.DictComp) or (moon.node.value.__class__ == ast.Call and moon.node.value.func.__class__ == ast.Name and (moon.node.value.func.id == 'dict')) else False
@@ -1470,26 +1413,19 @@ class BuildTimeTransformer:
                             elts = (left, right)
                             nadir = moon.up
                             zenith = nadir.up
-                            yloopsf = 0
                             while zenith:
                                 ymatch_0_subject = zenith.node.__class__
                                 if ymatch_0_subject == ast.Assign:
                                     if zenith.node.value.__class__ == ast.Tuple and zenith.node.targets[0].__class__ == ast.Tuple and (len(zenith.node.value.elts) == len(zenith.node.targets[0].elts)):
-                                        yloopsf = 0
                                         for (tgt, val) in zip(zenith.node.targets[0].elts, zenith.node.value.elts):
                                             if tgt.__class__ == ast.Name:
                                                 thing = 'ASSbc'
                                                 grab.defs.append((tgt.id, thing))
-                                        if yloopsf:
-                                            break
                                     else:
-                                        yloopsf = 0
                                         for tgt in zenith.node.targets:
                                             if tgt.__class__ == ast.Name:
                                                 thing = 'ASSbs'
                                                 grab.defs.append((tgt.id, thing))
-                                        if yloopsf:
-                                            break
                                     break
                                 elif (ymatch_0_subject == ast.AnnAssign or ymatch_0_subject == ast.AugAssign) and (tgt := zenith.node.target).__class__ == ast.Name:
                                     grab.defs.append((tgt.id, 'Ass'))
@@ -1523,7 +1459,6 @@ class BuildTimeTransformer:
                                     if right.__class__ == ast.BinOp:
                                         node = right
                                         flatten = []
-                                        yloopsf = 0
                                         while node.__class__ == ast.BinOp:
                                             flatten.append(node.right)
                                             assert node.op.__class__ == ast.BitOr
@@ -1531,12 +1466,10 @@ class BuildTimeTransformer:
                                         flatten.append(node)
                                         result = ast.BinOp(left=..., op=ast.BitOr(), right=flatten[0])
                                         tmp = []
-                                        yloopsf = 0
                                         for node in flatten[1:-1]:
                                             tmp.append(ast.BinOp(left=..., op=ast.BitOr(), right=node))
                                         tmp[-1].left = ast.BinOp(left=left, op=ast.BitOr(), right=flatten[-1])
                                         prev = tmp[-1]
-                                        yloopsf = 0
                                         for tmp_ in reversed(tmp[:-1]):
                                             tmp_.left = prev
                                             prev = tmp_
@@ -1551,7 +1484,6 @@ class BuildTimeTransformer:
                                 moon.up.elts = new_moon.elts
                                 grab(moon.up.up)
                                 return moon.up
-                yloopsf = 0
                 for moon in MoonWalking(self.ast, filter_cb=moon_filter).tree:
                     if moon.node in grab.done:
                         continue
@@ -1564,7 +1496,6 @@ class BuildTimeTransformer:
                     else:
                         breakpoint()
             del grab
-        yloopsf = 0
         for varname in sorted(backported_fstring):
             add_at_the_module_beginning(self.ast, ast.Assign(targets=[ast.Name(varname, context=ast.Store())], value=ast.Constant(chr(int(varname[len('_bfb_'):-2], 16))), lineno=1))
         if self.autoimport:

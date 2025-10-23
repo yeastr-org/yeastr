@@ -10,7 +10,6 @@ def fn():
     while True:
         _yfor_chloop_iter = _str
         _yfor_chloop_i = 0
-        yloopsf = 0
         while _yfor_chloop_i < len(_yfor_chloop_iter):
             ch = _yfor_chloop_iter[_yfor_chloop_i]
             ymatch_0_subject = ch
@@ -28,8 +27,6 @@ def fn():
             assert _yfor_chloop_i >= 0, 'u screwed up.. I mean, down, yep, up\nu screwed up!'
         if yloopsf & 2:
             yloopsf = 0
-            break
-        elif yloopsf:
             break
     return ''.join(_str) + '.de'
 print('%s.%s' % ('media', fn()))
