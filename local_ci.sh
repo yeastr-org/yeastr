@@ -10,6 +10,7 @@ LAYOUT_SCRIPT=/tmp/yeastr-test-script
 STORE_DIR=$CUR_DIR/../yeastr-test-proj/localci
 #PY313=/root/wip/wip/Python-3.13.7/python
 PY314=/tmp/Python-3.14.0rc3/python
+YEASTR_V=0.0.2
 # STORE_DIR abuses yeastr-test-proj, but contains all the layouts results
 mkdir -p $STORE_DIR/out
 
@@ -55,7 +56,7 @@ case $1 in
         set -x
         echo "well, if you wonder why I'm installing wheels instead of testing the deps management"
         echo "this is still unreleased, and this is just for my machine"
-        pip install $CUR_DIR/dist/yeastr-0.0.1-py314-none-any.whl --force-reinstall
+        pip install $CUR_DIR/dist/yeastr-${YEASTR_V}-py314-none-any.whl --force-reinstall
         # f*ck let me do stuff offline.
         # (happened again to forget --no-deps)
         for whl in `ls $WHLS/*.whl`; do
@@ -83,7 +84,7 @@ case $1 in
         set +x ; echo 'activate yeastr-venv-srctest-py314'
         . yeastr-venv-srctest-py314/bin/activate
         set -x
-        pip install $CUR_DIR/dist/yeastr-0.0.1-py314-none-any.whl --force-reinstall
+        pip install $CUR_DIR/dist/yeastr-${YEASTR_V}-py314-none-any.whl --force-reinstall
         python -m yeastr.packaging_test > ./out/yeastr_test_packaging_py314
         diff $STORE_DIR/out/yeastr_test_packaging ./out/yeastr_test_packaging_py314  # this one aborts the tests
         pip install $LAYOUT_SRC/dist/yeastr_test-0.0.1-py314-none-any.whl --force-reinstall --no-deps
@@ -105,7 +106,7 @@ case $1 in
         set -x
         echo 'pip is always broken on py3.8.20 (and 19 too), patch it'
         sed -i $VIRTUAL_ENV/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/found_candidates.py -e 's/Sequence\[Candidate\]/Sequence/'
-        pip install $CUR_DIR/dist/yeastr-0.0.1-py38-none-any.whl --force-reinstall
+        pip install $CUR_DIR/dist/yeastr-${YEASTR_V}-py38-none-any.whl --force-reinstall
         python -m yeastr.packaging_test > ./out/yeastr_test_packaging_py38
         diff ./out/yeastr_test_packaging_py38 $STORE_DIR/out/yeastr_test_packaging
 
@@ -153,7 +154,7 @@ case $1 in
         set +x ; echo 'activate yeastr-venv-script-py314'
         . yeastr-venv-script-py314/bin/activate
         set -x
-        pip install $CUR_DIR/dist/yeastr-0.0.1-py314-none-any.whl --force-reinstall
+        pip install $CUR_DIR/dist/yeastr-${YEASTR_V}-py314-none-any.whl --force-reinstall
         pip list
         echo 'Launch some examples'
         python $LAYOUT_SCRIPT/call2comp.py > ./out/script_call2comp_py314
@@ -170,7 +171,7 @@ case $1 in
         set -x
         echo 'pip is always broken on py3.8.20 (and 19 too), patch it'
         sed -i $VIRTUAL_ENV/lib/python3.8/site-packages/pip/_internal/resolution/resolvelib/found_candidates.py -e 's/Sequence\[Candidate\]/Sequence/'
-        pip install $CUR_DIR/dist/yeastr-0.0.1-py38-none-any.whl --force-reinstall
+        pip install $CUR_DIR/dist/yeastr-${YEASTR_V}-py38-none-any.whl --force-reinstall
         echo 'Launch same examples with python 3.8'
         python $LAYOUT_SCRIPT/call2comp.py > ./out/script_call2comp_py38
         python $LAYOUT_SCRIPT/namedloops.py > ./out/script_namedloops_py38

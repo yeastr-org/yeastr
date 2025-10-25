@@ -9,7 +9,7 @@ if __name__ == '__main__':
     # new_macros = Macros()
 
     PN = 'yeastr'
-    PV = '0.0.1'
+    PV = '0.0.2'
 
     for pep425 in (f'py{v}-none-any' for v in (
         #'39',

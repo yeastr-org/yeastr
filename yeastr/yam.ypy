@@ -4,7 +4,7 @@ Predicates to test ast nodes
 
 .. warning:: Still unstable, "Adding as needed". Expect changes
 
-..note:: Eventually changes would go into _vX suffix
+.. note:: Eventually changes would go into _vX suffix
 """
 
 @def_macro(expr=True)

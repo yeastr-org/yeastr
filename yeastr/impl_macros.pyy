@@ -35,15 +35,21 @@ The C preprocessor operates on text, we don't, so let's see what can we do
 - X macros: Define a list of names. each name on their own line
 
 - Y macros: Expands like standard macro, the only parameter is the name of the current x item. Has:
+
   + x_token: anywhere in a "str" such as function definitions
+
   + x_quoted: gets replaced with "item"
+
   + x: the item name (so something at runtime)
 
 This is ok-ish (pretty limited) for templating, but you may also want to be able to create expressions
 
 - Z macros: Skeletons packing the X macro, 1st arg is the name of the xmacro, 2nd is the name of the emacro.
+
   + formal emacro gets replaced with actual emacro name
+
   + xmacro gets relaced with a tuple of names
+
   + xmacro_quoted gets replaced with a tuple of strings
 
 
@@ -54,7 +60,9 @@ Additionally you can X(len) that is useful for asserts
     Added X/Y/Z Macros
 
 Plans for v0.0.3:
+
 - maybe introduce a _content,
+
 - maybe indexing?
 
 
