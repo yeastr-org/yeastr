@@ -38,7 +38,10 @@ class Moon:
     def __init__(self, node, parent=None, field=None, position=None):
         # TypeError: cannot create weak reference to 'list' object
         # here probably means you are building a bad tree
-        self._node_ref = weakref.ref(node)
+        if isinstance(node, str):
+            self._node_ref = lambda: node
+        else:
+            self._node_ref = weakref.ref(node)
         if parent:
             self._up_ref = weakref.ref(parent)
         else:
@@ -77,7 +80,7 @@ class Moon:
        return (
             f'<Moon({self.node.__class__.__name__} '
             f'{self.up!r}.{self.up_field}[{self.position}]'
-            f')>{ast.unparse(self.node)}</>'
+            f')>{ast.unparse(self.node) if not isinstance(self.node, str) else self.node}</>'
         )
 
     def recursive_repr(self):
@@ -100,6 +103,9 @@ class Moon:
             getattr(self.up.node, self.up_field)[self.position] = node
         else:
             setattr(self.up.node, self.up_field, node)
+
+    def replace_str(self, new_str):
+        setattr(self.up.node, self.up_field, new_str)
 
     def pop(self):
         """Edits the ast.AST, in-place removing moon.node"""
@@ -219,17 +225,25 @@ class MoonWalking:
 
     @staticmethod
     def _iter_ast(ast_node, parent=None, field=None, position=None):
-        """Generator called by __init__, yields Moons"""
+        """Generator called by __init__, yields Moons.
+
+        field values:
+        - list yielded unpacked
+        - str are yielded;
+        - numbers and None are not yielded
+        """
         yield (parent := Moon(ast_node, parent, field, position))
-        for fieldname, field in ast.iter_fields(ast_node):
-            if isinstance(field, ast.AST):
-                for it in MoonWalking._iter_ast(field, parent, fieldname):
+        for fieldname, _field in ast.iter_fields(ast_node):
+            if isinstance(_field, ast.AST):
+                for it in MoonWalking._iter_ast(_field, parent, fieldname):
                     yield it
-            elif isinstance(field, list):
-                for i, it in enumerate(field):
+            elif isinstance(_field, list):
+                for i, it in enumerate(_field):
                     if isinstance(it, ast.AST):
                         for it in MoonWalking._iter_ast(it, parent, fieldname, i):
                             yield it
+            elif isinstance(_field, str):
+                yield Moon(_field, parent, fieldname)
 
 
 def ast_copy(ast_node):
@@ -288,7 +302,6 @@ YMF_expr     = 1 << 2
 YMF_XMacro   = 1 << 3
 YMF_YMacro   = 1 << 4
 YMF_ZMacro   = 1 << 5
-YMF_WMacro   = 1 << 6
 
 
 # You must always use @def_macro() when not using the BuildTimeTransformer
@@ -300,7 +313,6 @@ def def_macro(
     XMacro=False,
     YMacro=False,
     ZMacro=False,
-    WMacro=False,
     **kwargs
 ):
     """@def_macro() decorator for JIT macros only"""
@@ -320,8 +332,6 @@ def def_macro(
             flags |= YMF_YMacro
         if ZMacro:
             flags |= YMF_ZMacro
-        if WMacro:
-            flags |= YMF_WMacro
         _macros.add(fn, flags, args, kwargs)
         return fn
     return _def_macro

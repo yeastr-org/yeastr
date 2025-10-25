@@ -36,7 +36,10 @@ class Moon:
     """
 
     def __init__(self, node, parent=None, field=None, position=None):
-        self._node_ref = weakref.ref(node)
+        if isinstance(node, str):
+            self._node_ref = lambda: node
+        else:
+            self._node_ref = weakref.ref(node)
         if parent:
             self._up_ref = weakref.ref(parent)
         else:
@@ -72,7 +75,7 @@ class Moon:
             self._up_ref = None
 
     def __str__(self):
-        return f'<Moon({self.node.__class__.__name__} {self.up!r}.{self.up_field}[{self.position}])>{ast.unparse(self.node)}</>'
+        return f'<Moon({self.node.__class__.__name__} {self.up!r}.{self.up_field}[{self.position}])>{(ast.unparse(self.node) if not isinstance(self.node, str) else self.node)}</>'
 
     def recursive_repr(self):
         return f"<Moon({repr(self.node)[5:].split(' ', 1)[0]}) from [{self.position}]{self.up_field}. {self.up.recursive_repr()}>"
@@ -94,6 +97,9 @@ class Moon:
             getattr(self.up.node, self.up_field)[self.position] = node
         else:
             setattr(self.up.node, self.up_field, node)
+
+    def replace_str(self, new_str):
+        setattr(self.up.node, self.up_field, new_str)
 
     def pop(self):
         """Edits the ast.AST, in-place removing moon.node"""
@@ -205,17 +211,25 @@ class MoonWalking:
 
     @staticmethod
     def _iter_ast(ast_node, parent=None, field=None, position=None):
-        """Generator called by __init__, yields Moons"""
+        """Generator called by __init__, yields Moons.
+
+        field values:
+        - list yielded unpacked
+        - str are yielded;
+        - numbers and None are not yielded
+        """
         yield (parent := Moon(ast_node, parent, field, position))
-        for (fieldname, field) in ast.iter_fields(ast_node):
-            if isinstance(field, ast.AST):
-                for it in MoonWalking._iter_ast(field, parent, fieldname):
+        for (fieldname, _field) in ast.iter_fields(ast_node):
+            if isinstance(_field, ast.AST):
+                for it in MoonWalking._iter_ast(_field, parent, fieldname):
                     yield it
-            elif isinstance(field, list):
-                for (i, it) in enumerate(field):
+            elif isinstance(_field, list):
+                for (i, it) in enumerate(_field):
                     if isinstance(it, ast.AST):
                         for it in MoonWalking._iter_ast(it, parent, fieldname, i):
                             yield it
+            elif isinstance(_field, str):
+                yield Moon(_field, parent, fieldname)
 
 def ast_copy(ast_node):
     """deepcopy of :class:`ast.AST` tree, just faster"""
@@ -251,9 +265,8 @@ YMF_expr = 1 << 2
 YMF_XMacro = 1 << 3
 YMF_YMacro = 1 << 4
 YMF_ZMacro = 1 << 5
-YMF_WMacro = 1 << 6
 
-def def_macro(*args, hygienic=False, mLang=False, expr=False, XMacro=False, YMacro=False, ZMacro=False, WMacro=False, **kwargs):
+def def_macro(*args, hygienic=False, mLang=False, expr=False, XMacro=False, YMacro=False, ZMacro=False, **kwargs):
     """@def_macro() decorator for JIT macros only"""
 
     def _def_macro(fn):
@@ -272,8 +285,6 @@ def def_macro(*args, hygienic=False, mLang=False, expr=False, XMacro=False, YMac
             flags |= YMF_YMacro
         if ZMacro:
             flags |= YMF_ZMacro
-        if WMacro:
-            flags |= YMF_WMacro
         _macros.add(fn, flags, args, kwargs)
         return fn
     return _def_macro
@@ -412,10 +423,13 @@ class Macros:
         bmacro.ymacrokw = kwargs
         self._macros.update({name: (fn, _ast)})
 
-    def retrieve(self, ast_node):
+    def retrieve(self, ast_node, required=False):
         """
         :param ast_node: of the macro to retrieve
         :type ast_node: ast.Name
+
+        :param required: raise when not found, dumping the name of all knowing macros, defaults to False
+        :type required: bool
 
         :returns: A copy of the body of the macro as the last element of the returned tuple
         :rtype: Tuple[str, Any, List[ast.AST]]
@@ -424,6 +438,8 @@ class Macros:
             mname = ast_node.id
             if (duple := self._macros.get(mname)) is not None:
                 return (mname, duple[0], ast_copy(duple[1]))
+        if required:
+            raise TransformError(f'Macro {ast_node.id} missing. known: {list(self._macros.keys())}')
 _macros = Macros()
 
 # Getting macros from yeastr/impl_namedloops.pyy
@@ -504,8 +520,6 @@ class BuildTimeTransformer:
                         flags |= YMF_YMacro
                     elif kwargs.get('ZMacro', False) or 'Z' == marg0:
                         flags |= YMF_ZMacro
-                    elif kwargs.get('WMacro', False) or 'W' == marg0:
-                        flags |= YMF_WMacro
                     assert not (flags & YMF_expr and flags & YMF_hygienic), "just doesn't make sense... it does but wait..."
                     if strip == 'strip_def':
                         if 'hygienic' in kwargs:
@@ -601,59 +615,71 @@ class BuildTimeTransformer:
                             raise NotImplementedError('X Macro with mLang')
                         assert len(moon.node.args) == 1, 'mismatching XMacro(YMacro) arity'
                         assert moon.node.args[0].__class__ == ast.Name, 'bad XMacro(YMacro) param'
-                        (xYname, xYfn, xYast) = _macros.retrieve(moon.node.args[0])
-                        assert xYfn.ym_flags & YMF_YMacro
-                        if xYfn.ym_flags & YMF_mLang:
-                            raise NotImplementedError('Y Macro with mLang')
-                        ym_params = list(signature(xYfn).parameters.keys())
-                        ym_quoted = [f'{p}_quoted' for p in ym_params]
-                        moon.expanded = []
-                        with MoonGrabber() as keepalive:
+                        if moon.node.args[0].id == 'len':
+                            moon.expanded = [ast.Constant(len(_ast))]
+                            moon.was_len = True
+                        else:
+                            moon.was_len = False
+                            (xYname, xYfn, xYast) = _macros.retrieve(moon.node.args[0], required=True)
+                            assert xYfn.ym_flags & YMF_YMacro, ast.unparse(moon.up.node)
+                            if xYfn.ym_flags & YMF_mLang:
+                                raise NotImplementedError('Y Macro with mLang')
+                            ym_params = list(signature(xYfn).parameters.keys())
+                            ym_quoted = [f'{p}_quoted' for p in ym_params]
+                            moon.expanded = []
+                            with MoonGrabber() as keepalive:
 
-                            def moon_filter(moon):
-                                if moon.node.__class__ == ast.Name and ((fpname := (moon.node.id in ym_params)) or moon.node.id in ym_quoted):
-                                    moon.argname = moon.node.id
-                                    moon.suffix = ''
-                                    if not fpname:
-                                        moon.suffix = '_quoted'
-                                    keepalive(moon.up)
-                                    return moon
-                            for _x in _ast:
-                                if not (_x.__class__ == ast.Expr and (xname := _x.value).__class__ == ast.Name and (xstr := xname.id)):
-                                    raise NotImplementedError('XMacro is not a list of names, this is TODO')
-                                preserved_xYast = ast_copy(xYast)
-                                fake_module = ast.Module(body=preserved_xYast)
-                                for _yfor_xymoons_it in MoonWalking(fake_module, filter_cb=moon_filter).tree:
-                                    if _yfor_xymoons_it.suffix == '_quoted':
-                                        _yfor_xymoons_it.replace(ast.Constant(xstr))
-                                    else:
-                                        _yfor_xymoons_it.replace(ast.Name(xstr, ctx=_yfor_xymoons_it.node.ctx))
-                                moon.expanded.extend(preserved_xYast)
+                                def moon_filter(moon):
+                                    if moon.node.__class__ == ast.Name and ((fpname := (moon.node.id in ym_params)) or moon.node.id in ym_quoted):
+                                        moon.argname = moon.node.id
+                                        moon.suffix = ''
+                                        if not fpname:
+                                            moon.suffix = '_quoted'
+                                        keepalive(moon.up)
+                                        return moon
+                                    elif moon.node.__class__ == str and f'{ym_params[0]}_token' in moon.node:
+                                        moon.suffix = '_token'
+                                        moon.up
+                                        return moon
+                                for _x in _ast:
+                                    if not (_x.__class__ == ast.Expr and (xname := _x.value).__class__ == ast.Name and (xstr := xname.id)):
+                                        raise NotImplementedError('XMacro is not a list of names, this is TODO')
+                                    preserved_xYast = ast_copy(xYast)
+                                    fake_module = ast.Module(body=preserved_xYast)
+                                    for _yfor_xymoons_it in MoonWalking(fake_module, filter_cb=moon_filter).tree:
+                                        if _yfor_xymoons_it.suffix == '_quoted':
+                                            _yfor_xymoons_it.replace(ast.Constant(xstr))
+                                        elif _yfor_xymoons_it.suffix == '_token':
+                                            _yfor_xymoons_it.replace_str(re.sub(f'{ym_params[0]}_token', xstr, _yfor_xymoons_it.node))
+                                        else:
+                                            _yfor_xymoons_it.replace(ast.Name(xstr, ctx=_yfor_xymoons_it.node.ctx))
+                                    moon.expanded.extend(preserved_xYast)
                     elif fn__.ym_flags & YMF_ZMacro:
                         assert moon.node.args[0].__class__ == ast.Name, 'bad ZMacro 1st param, must be XMacro'
-                        assert moon.node.args[1].__class__ == ast.Name, 'bad ZMacro 2nd param, must be WMacro'
+                        assert moon.node.args[1].__class__ == ast.Name, 'bad ZMacro 2nd param, must be a name'
                         if fn__.ym_flags & YMF_hygienic:
                             raise NotImplementedError('Z Macro with hygienic')
                         if fn__.ym_flags & YMF_mLang:
                             raise NotImplementedError('Z Macro with mLang')
                         z_params = list(signature(fn__).parameters.keys())
                         if len(moon.node.args) != 2:
-                            raise NotImplementedError('Z(X, Y) macro, check arity')
+                            raise NotImplementedError('Z(X, E) macro, check arity')
                         if any((arg.__class__ != ast.Name for arg in moon.node.args)):
                             raise NotImplementedError('Z args must be static known names')
-                        (zXname, zXfn, zXast) = _macros.retrieve(moon.node.args[0])
+                        (zXname, zXfn, zXast) = _macros.retrieve(moon.node.args[0], required=True)
                         assert zXfn.ym_flags & YMF_XMacro
                         if zXfn.ym_flags & YMF_mLang:
                             raise NotImplementedError('X Macro with mLang')
-                        (zWname, zWfn, zWast) = _macros.retrieve(moon.node.args[1])
-                        assert zWfn.ym_flags & YMF_WMacro
-                        if zWfn.ym_flags & YMF_mLang:
-                            raise NotImplementedError('W Macro with mLang')
                         with MoonGrabber() as keepalive:
 
                             def moon_filter(zmoon):
-                                if zmoon.node.__class__ == ast.Name and zmoon.node.id in z_params:
-                                    zmoon.param_i = z_params.index(zmoon.node.id)
+                                if zmoon.node.__class__ == ast.Name and ((unquoted := (zmoon.node.id in z_params)) or (zmoon.node.id.endswith('_quoted') and zmoon.node.id[:-len('_quoted')] in z_params)):
+                                    if unquoted:
+                                        zmoon.param_i = z_params.index(zmoon.node.id)
+                                        zmoon.quoted = False
+                                    else:
+                                        zmoon.param_i = z_params.index(zmoon.node.id[:-len('_quoted')])
+                                        zmoon.quoted = True
                                     keepalive(zmoon.up)
                                     return zmoon
 
@@ -661,26 +687,12 @@ class BuildTimeTransformer:
                                 yloopsf = 0
                                 for _n in moonwalker.tree:
                                     if _n.param_i == 0:
-                                        _n.replace(ast.Tuple(elts=[x.value for x in zXast]))
+                                        _n.replace(ast.Tuple(elts=[ast.Constant(x.value.id) if _n.quoted else x.value for x in zXast]))
                                     else:
                                         _n.node.id = moon.node.args[_n.param_i].id
                                 return True
                             for ast__ in _ast:
                                 MoonWalking(ast__, filter_cb=moon_filter, before_reversing_cb=moon_walk)
-                    elif fn__.ym_flags & YMF_WMacro:
-                        w_params = list(signature(fn__).parameters.keys())
-                        if len(w_params) > 1:
-                            raise NotImplementedError('W macro with n-arity')
-                        assert moon.node.args[0].__class__ == ast.Name, 'bad W Macro 1st param, must be ast.Name'
-                        with MoonGrabber() as keepalive:
-
-                            def moon_filter(moon):
-                                if moon.node.__class__ == ast.Name and moon.node.id in w_params:
-                                    moon.argname = moon.node.id
-                                    keepalive(moon.up)
-                                    return moon
-                            for _yfor_wmoons_it in MoonWalking(_ast[0], filter_cb=moon_filter).tree:
-                                _yfor_wmoons_it.replace(ast.Name(moon.node.args[0].id, ctx=_yfor_wmoons_it.node.ctx))
                     elif fn__.ym_flags & YMF_expr:
                         formal_params = list(signature(fn__).parameters.keys())
                         with MoonGrabber() as keepalive:
@@ -829,18 +841,17 @@ class BuildTimeTransformer:
                             raise TransformError(f"{'expression'} macro expanded into multiple expressions")
                         moon.replace(_ast[0].value)
                     elif fn__.ym_flags & YMF_XMacro:
-                        assert moon.up.node.__class__ == ast.Expr, 'did you want Z(W) instead of X(Y)?'
-                        moon.up.pop_extend(moon.expanded)
+                        if moon.was_len:
+                            moon.up.replace(moon.expanded[0])
+                        else:
+                            assert moon.up.node.__class__ == ast.Expr, f'did you want Z(W) instead of X(Y)? {ast.unparse(moon.up.node)}'
+                            moon.up.pop_extend(moon.expanded)
                     elif fn__.ym_flags & YMF_ZMacro:
                         if len(_ast) > 1:
                             raise TransformError(f"{'Z'} macro expanded into multiple expressions")
                         moon.replace(_ast[0].value)
-                    elif fn__.ym_flags & YMF_WMacro:
-                        if len(_ast) > 1:
-                            raise TransformError(f"{'W'} macro expanded into multiple expressions")
-                        moon.replace(_ast[0].value)
                     else:
-                        if fn__.ym_flags & (YMF_expr | YMF_XMacro | YMF_YMacro | YMF_ZMacro | YMF_WMacro):
+                        if fn__.ym_flags & (YMF_expr | YMF_XMacro | YMF_YMacro | YMF_ZMacro):
                             raise TransformError(f'Incorrect expansion of {mname}')
                         assignments = []
                         for (_yfor_l_i, _yfor_l_it) in enumerate(signature(fn__).parameters):

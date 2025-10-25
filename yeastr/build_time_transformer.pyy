@@ -35,8 +35,6 @@ def get_macro_arguments(node: ast.FunctionDef):
         flags |= YMF_YMacro
     elif kwargs.get('ZMacro', False) or 'Z' == marg0:
         flags |= YMF_ZMacro
-    elif kwargs.get('WMacro', False) or 'W' == marg0:
-        flags |= YMF_WMacro
     assert not (flags & YMF_expr and flags & YMF_hygienic), "just doesn't make sense... it does but wait..."
 
 
